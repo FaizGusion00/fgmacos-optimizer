@@ -51,3 +51,8 @@ xcodegen generate
 ## Permissions
 
 Grant Full Disk Access, Notifications, and optionally Accessibility via **Permissions** in the popover footer.
+
+---
+
+**Developed by:** Faiz Nasir (Malaysia)  
+**Owned by:** FG Universal Empire
