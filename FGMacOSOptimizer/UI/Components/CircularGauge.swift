@@ -44,12 +44,12 @@ struct CircularGauge: View {
                     Image(systemName: symbol)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(TurboTheme.bandColor(band))
-                        .symbolEffect(.pulse, options: .repeating.speed(0.35), isActive: band == .bad)
+                        .fgSymbolPulse(isActive: band == .bad)
 
                     Text(centerText)
                         .font(.system(size: 14, weight: .bold, design: .rounded))
                         .monospacedDigit()
-                        .contentTransition(.numericText())
+                        .fgNumericTextTransition()
                         .minimumScaleFactor(0.7)
                         .lineLimit(1)
                 }
@@ -59,7 +59,7 @@ struct CircularGauge: View {
             .onAppear {
                 withAnimation(MotionTokens.gauge.delay(0.05)) { animated = true }
             }
-            .onChange(of: clamped) { _, _ in
+            .fgOnChange(of: clamped) { _ in
                 animated = true
             }
 

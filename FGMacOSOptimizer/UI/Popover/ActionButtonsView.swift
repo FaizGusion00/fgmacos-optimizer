@@ -80,7 +80,7 @@ private struct ActionChip: View {
             VStack(spacing: 6) {
                 Image(systemName: symbol)
                     .font(.system(size: 16, weight: .semibold))
-                    .symbolEffect(.bounce, value: bounced)
+                    .fgSymbolBounce(value: bounced)
                 Text(title)
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
             }

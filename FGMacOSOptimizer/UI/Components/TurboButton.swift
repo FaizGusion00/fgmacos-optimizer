@@ -32,7 +32,7 @@ struct TurboButton: View {
                 HStack(spacing: 10) {
                     Image(systemName: isActive ? "bolt.fill" : "gauge.with.needle.fill")
                         .font(.system(size: 17, weight: .bold))
-                        .symbolEffect(.bounce, value: pressed)
+                        .fgSymbolBounce(value: pressed)
 
                     VStack(alignment: .leading, spacing: 1) {
                         Text(isActive ? "Turbo On" : "Boost Now")
@@ -64,7 +64,7 @@ struct TurboButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
-        .onChange(of: isActive) { _, active in
+        .fgOnChange(of: isActive) { active in
             if active { burst() }
         }
     }

@@ -12,6 +12,7 @@
 		0624B8354DD844C9EC571D8F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD14DB6E901EEB45D0AFE6AF /* AppDelegate.swift */; };
 		0626EFF042904D5E7F2B3BC0 /* PermissionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 941DCE79BD0962528F98B405 /* PermissionManager.swift */; };
 		0DA2DC4FBE148BE74FBBFFD9 /* AuthSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C8C33FCE22DA2949A482355 /* AuthSessionView.swift */; };
+		1C934202538CD58D5516EF7F /* Compatibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6AD60AC1CECFF1E4FC73325 /* Compatibility.swift */; };
 		294A10EA09FCFFF134C7A1DA /* VibrancyBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B4E739B96CDCDB0EAE93AE /* VibrancyBackground.swift */; };
 		38066050AC32888B90744C62 /* SessionAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76536244AC6882B957B4489F /* SessionAuth.swift */; };
 		3AC8237CA8A5FE1CF2F290DD /* MetricSmoother.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1D234BBCEE7D55CF442C6C0 /* MetricSmoother.swift */; };
@@ -89,6 +90,7 @@
 		C9084E00028F415910F42CD3 /* StatusGaugesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusGaugesView.swift; sourceTree = "<group>"; };
 		CD14DB6E901EEB45D0AFE6AF /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		D1D234BBCEE7D55CF442C6C0 /* MetricSmoother.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricSmoother.swift; sourceTree = "<group>"; };
+		D6AD60AC1CECFF1E4FC73325 /* Compatibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Compatibility.swift; sourceTree = "<group>"; };
 		DB1D0F1A49CB22F4B55E382E /* FGMacOSOptimizer.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FGMacOSOptimizer.entitlements; sourceTree = "<group>"; };
 		E7B4E739B96CDCDB0EAE93AE /* VibrancyBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VibrancyBackground.swift; sourceTree = "<group>"; };
 		E7BB29456D860A8BE3253758 /* StartupSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartupSettingsView.swift; sourceTree = "<group>"; };
@@ -121,6 +123,7 @@
 		30DF34615F3E9898D690EE68 /* Theme */ = {
 			isa = PBXGroup;
 			children = (
+				D6AD60AC1CECFF1E4FC73325 /* Compatibility.swift */,
 				9FD0074E32223B3502F1769B /* TurboTheme.swift */,
 			);
 			path = Theme;
@@ -347,6 +350,7 @@
 				F1567E9E01A7C465349D9B66 /* BatteryMonitor.swift in Sources */,
 				9862CD49D6825C7ED6FDA134 /* CircularGauge.swift in Sources */,
 				88A198F297317673780212D3 /* CleanResult.swift in Sources */,
+				1C934202538CD58D5516EF7F /* Compatibility.swift in Sources */,
 				05483764BDC4B4287B8DC3FD /* DiskMonitor.swift in Sources */,
 				B46CC6CF310CC66258FC6FA1 /* FGMacOSOptimizerApp.swift in Sources */,
 				F89C171349E8D4645BD248F1 /* LaunchAtLoginStore.swift in Sources */,
@@ -390,14 +394,14 @@
 				CODE_SIGN_ENTITLEMENTS = FGMacOSOptimizer/Resources/FGMacOSOptimizer.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FGMacOSOptimizer/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
 				LSUIElement = YES;
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.0.1;
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_LDFLAGS = "$(inherited) -lproc";
 				PRODUCT_BUNDLE_IDENTIFIER = com.fgmacos.optimizer;
@@ -459,7 +463,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = NO;
@@ -516,7 +520,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = NO;
@@ -536,14 +540,14 @@
 				CODE_SIGN_ENTITLEMENTS = FGMacOSOptimizer/Resources/FGMacOSOptimizer.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FGMacOSOptimizer/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
 				LSUIElement = YES;
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.0.1;
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_LDFLAGS = "$(inherited) -lproc";
 				PRODUCT_BUNDLE_IDENTIFIER = com.fgmacos.optimizer;

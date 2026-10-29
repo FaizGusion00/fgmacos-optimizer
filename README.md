@@ -4,17 +4,17 @@ Premium macOS **menu-bar** optimizer — live metrics, Turbo Mode, Smart Watchdo
 
 ## Download & install
 
-**Latest release:** [FGMacOS Optimizer v1.0.0](https://github.com/FaizGusion00/fgmacos-optimizer/releases/tag/v1.0.0)
+**Latest release:** [FGMacOS Optimizer v1.0.1](https://github.com/FaizGusion00/fgmacos-optimizer/releases/tag/v1.0.1)
 
 | File | What to do |
 |------|------------|
-| **[FGMacOS-Optimizer-v1.0.0.dmg](https://github.com/FaizGusion00/fgmacos-optimizer/releases/download/v1.0.0/FGMacOS-Optimizer-v1.0.0.dmg)** | Open DMG → drag **FGMacOS Optimizer** into **Applications** |
-| [FGMacOS-Optimizer-v1.0.0-macos.zip](https://github.com/FaizGusion00/fgmacos-optimizer/releases/download/v1.0.0/FGMacOS-Optimizer-v1.0.0-macos.zip) | Unzip → move `.app` into Applications |
+| **[FGMacOS-Optimizer-v1.0.1.dmg](https://github.com/FaizGusion00/fgmacos-optimizer/releases/download/v1.0.1/FGMacOS-Optimizer-v1.0.1.dmg)** | Open DMG → drag **FGMacOS Optimizer** into **Applications** |
+| [FGMacOS-Optimizer-v1.0.1-macos.zip](https://github.com/FaizGusion00/fgmacos-optimizer/releases/download/v1.0.1/FGMacOS-Optimizer-v1.0.1-macos.zip) | Unzip → move `.app` into Applications |
 
 First launch: right-click the app → **Open** (ad-hoc signed; Gatekeeper may warn).  
 App lives in the **menu bar** (gauge / bolt icon) — no Dock icon.
 
-**Requirements:** macOS 14+ (Apple Silicon or Intel)
+**Requirements:** macOS 13 Ventura+ (Apple Silicon or Intel)
 
 ## Features
 
@@ -28,7 +28,7 @@ App lives in the **menu bar** (gauge / bolt icon) — no Dock icon.
 
 ## Build from source
 
-- macOS 14+
+- macOS 13 Ventura+
 - Xcode 15+
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`)
 

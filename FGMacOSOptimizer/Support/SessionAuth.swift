@@ -76,8 +76,12 @@ final class SessionAuth: ObservableObject {
         switch context.biometryType {
         case .touchID: biometryLabel = "Touch ID"
         case .faceID: biometryLabel = "Face ID"
-        case .opticID: biometryLabel = "Optic ID"
-        default: biometryLabel = "Password"
+        default:
+            if #available(macOS 14.0, *), context.biometryType == .opticID {
+                biometryLabel = "Optic ID"
+            } else {
+                biometryLabel = "Password"
+            }
         }
     }
 

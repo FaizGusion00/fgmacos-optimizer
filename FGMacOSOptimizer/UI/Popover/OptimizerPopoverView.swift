@@ -69,7 +69,7 @@ struct OptimizerPopoverView: View {
         .onAppear {
             withAnimation(MotionTokens.appearFast) { appeared = true }
         }
-        .onChange(of: appearanceStore.appearance) { _, newValue in
+        .fgOnChange(of: appearanceStore.appearance) { newValue in
             appearanceToken = UUID()
             NotificationCenter.default.post(name: .fgAppearanceDidChange, object: newValue)
         }
@@ -150,7 +150,7 @@ struct OptimizerPopoverView: View {
                 Image(systemName: appState.isTurboActive ? "bolt.fill" : "gauge.with.dots.needle.67percent")
                     .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(.white)
-                    .symbolEffect(.pulse, options: .repeating.speed(0.5), isActive: appState.isTurboActive)
+                    .fgSymbolPulse(isActive: appState.isTurboActive)
             }
 
             VStack(alignment: .leading, spacing: 2) {
@@ -199,7 +199,7 @@ struct OptimizerPopoverView: View {
 
             Spacer()
 
-            Text("v1.0")
+            Text("v1.0.1")
                 .font(Design.Text.micro)
                 .foregroundStyle(tertiary)
 
