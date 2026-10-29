@@ -10,10 +10,11 @@ test -d "$APP"
 rm -rf "$ROOT/dist/dmg-root"
 mkdir -p "$ROOT/dist/dmg-root"
 cp -R "$APP" "$ROOT/dist/dmg-root/FGMacOS Optimizer.app"
-cp "$ROOT/Scripts/Install.command" "$ROOT/dist/dmg-root/Install.command"
-chmod +x "$ROOT/dist/dmg-root/Install.command"
+cp "$ROOT/Scripts/Install.command" "$ROOT/dist/dmg-root/00-INSTALL.command"
+cp "$ROOT/Scripts/BACA-INI.txt" "$ROOT/dist/dmg-root/BACA-INI.txt"
+chmod +x "$ROOT/dist/dmg-root/00-INSTALL.command"
 xattr -cr "$ROOT/dist/dmg-root/FGMacOS Optimizer.app" || true
-xattr -cr "$ROOT/dist/dmg-root/Install.command" || true
+xattr -cr "$ROOT/dist/dmg-root/00-INSTALL.command" || true
 ln -sf /Applications "$ROOT/dist/dmg-root/Applications"
 
 OUT_DMG="$ROOT/dist/FGMacOS-Optimizer-v${VERSION}.dmg"

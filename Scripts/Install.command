@@ -1,27 +1,38 @@
 #!/bin/bash
-# Double-click this from the DMG. Copies app to Applications and clears Gatekeeper quarantine.
+# Right-click → Open  (jangan expect double-click selalu lulus Gatekeeper)
 set -euo pipefail
 
 SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_SRC="$SRC_DIR/FGMacOS Optimizer.app"
 DEST="/Applications/FGMacOS Optimizer.app"
 
+clear 2>/dev/null || true
+echo "============================================"
+echo " FGMacOS Optimizer — Install"
+echo "============================================"
+echo
+
 if [[ ! -d "$APP_SRC" ]]; then
-  osascript -e 'display dialog "FGMacOS Optimizer.app not found next to Install.command." buttons {"OK"} default button 1 with icon stop'
+  echo "ERROR: FGMacOS Optimizer.app not found."
+  read -r -p "Press Enter to close..."
   exit 1
 fi
 
-echo "Installing FGMacOS Optimizer to /Applications ..."
+echo "Copying to /Applications ..."
 rm -rf "$DEST"
 cp -R "$APP_SRC" "$DEST"
 
-# Remove download quarantine so Ventura/Sonoma Gatekeeper "Done"-only dialog goes away.
-xattr -cr "$DEST" || true
+echo "Clearing Gatekeeper quarantine ..."
+xattr -cr "$DEST" 2>/dev/null || true
 xattr -d com.apple.quarantine "$DEST" 2>/dev/null || true
+find "$DEST" -exec xattr -c {} \; 2>/dev/null || true
 
-echo "Launching..."
+echo "Launching ..."
 open "$DEST"
 
-osascript -e 'display dialog "Installed.\n\nLook at the menu bar (top-right) for the gauge / bolt icon.\n\nIf macOS still blocks: System Settings → Privacy & Security → Open Anyway." buttons {"OK"} default button 1 with title "FGMacOS Optimizer"'
-
+echo
+echo "DONE. Look at the MENU BAR (top-right), not the Dock."
+echo "If still blocked: System Settings → Privacy & Security → Open Anyway"
+echo
+read -r -p "Press Enter to close..."
 exit 0

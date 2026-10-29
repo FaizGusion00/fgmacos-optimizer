@@ -1,0 +1,28 @@
+FGMacOS Optimizer — CARA INSTALL (macOS Ventura / Intel)
+
+JANGAN double-click icon app terus.
+macOS akan keluar: "Apple could not verify..." button Done je.
+Tu Gatekeeper, bukan app rosak.
+
+CARA 1 (paling mudah selepas nampak dialog Done):
+1. Tekan Done
+2. Buka System Settings → Privacy & Security
+3. Scroll ke BAWAH
+4. Ada butang "Open Anyway" untuk FGMacOS Optimizer — tekan
+5. Confirm Open
+
+CARA 2 (Install.command):
+1. Right-click "00-INSTALL.command"
+2. Pilih Open
+3. Tekan Open semula kalau ditanya
+4. Biar Terminal siap — app masuk ke Applications
+
+CARA 3 (Terminal — selalu jadi):
+1. Drag "FGMacOS Optimizer.app" ke folder Applications
+2. Buka Terminal, paste:
+
+xattr -cr "/Applications/FGMacOS Optimizer.app" && open "/Applications/FGMacOS Optimizer.app"
+
+3. Enter
+
+Selepas tu tengok MENU BAR atas kanan (bukan Dock).

@@ -4,25 +4,22 @@ Premium macOS **menu-bar** optimizer — live metrics, Turbo Mode, Smart Watchdo
 
 ## Download & install
 
-**Latest release:** [FGMacOS Optimizer v1.0.5](https://github.com/FaizGusion00/fgmacos-optimizer/releases/tag/v1.0.5)
+**Latest release:** [FGMacOS Optimizer v1.0.6](https://github.com/FaizGusion00/fgmacos-optimizer/releases/tag/v1.0.6)
 
 | File | What to do |
 |------|------------|
-| **[FGMacOS-Optimizer-v1.0.5.dmg](https://github.com/FaizGusion00/fgmacos-optimizer/releases/download/v1.0.5/FGMacOS-Optimizer-v1.0.5.dmg)** | Open DMG → double-click **Install.command** (recommended) |
-| [zip](https://github.com/FaizGusion00/fgmacos-optimizer/releases/download/v1.0.5/FGMacOS-Optimizer-v1.0.5-macos.zip) | Unzip → move `.app` to Applications |
+| **[FGMacOS-Optimizer-v1.0.6.dmg](https://github.com/FaizGusion00/fgmacos-optimizer/releases/download/v1.0.6/FGMacOS-Optimizer-v1.0.6.dmg)** | Open DMG → baca **BACA-INI.txt** → right-click **00-INSTALL.command** → Open |
 
-### If macOS shows “Apple could not verify…” / only **Done**
-That is Gatekeeper (app is free/unsigned — not Apple notarized). **Not malware.**
+### “Apple could not verify…” / button **Done** only
+Gatekeeper (unsigned free app). **Not malware.** After you click Done once:
 
-1. Open the DMG → run **Install.command**, **or**
-2. System Settings → **Privacy & Security** → scroll down → **Open Anyway**, **or**
-3. Terminal:
+1. **System Settings → Privacy & Security → scroll down → Open Anyway**, or  
+2. Drag app to Applications, then Terminal:
    ```bash
-   xattr -cr "/Applications/FGMacOS Optimizer.app"
-   open "/Applications/FGMacOS Optimizer.app"
+   xattr -cr "/Applications/FGMacOS Optimizer.app" && open "/Applications/FGMacOS Optimizer.app"
    ```
 
-Universal binary (Intel + Apple Silicon). macOS 13 Ventura+.
+Universal (Intel + Apple Silicon) · macOS 13 Ventura+.
 
 First launch: right-click the app → **Open** (ad-hoc signed; Gatekeeper may warn).  
 App lives in the **menu bar** (gauge / bolt icon) — no Dock icon.
