@@ -211,6 +211,15 @@ struct OptimizerPopoverView: View {
             }
             .buttonStyle(.plain)
 
+            Button {
+                CleanerWindowController.show()
+            } label: {
+                Label("Cleaner", systemImage: "sparkles")
+                    .font(Design.Text.caption)
+                    .foregroundStyle(Color.orange)
+            }
+            .buttonStyle(.plain)
+
             Spacer()
 
             Text("v1.9.0")

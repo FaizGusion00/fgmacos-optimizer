@@ -3,53 +3,172 @@ import SwiftUI
 struct CleanerRootView: View {
     @EnvironmentObject private var store: CleanerStore
     @EnvironmentObject private var appearance: AppearanceStore
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        NavigationSplitView {
-            List(CleanCategory.allCases, selection: Binding(
-                get: { store.tab },
-                set: { store.selectTab($0) }
-            )) { cat in
-                Label(cat.title, systemImage: cat.symbol)
-                    .tag(cat)
-            }
-            .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 160, ideal: 180, max: 220)
-        } detail: {
+        HStack(spacing: 0) {
+            sidebar
+                .frame(width: 196)
+            Rectangle()
+                .fill(Color.primary.opacity(0.08))
+                .frame(width: 1)
             VStack(spacing: 0) {
                 header
-                Divider()
                 detailBody
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                Divider()
-                footer
+                footerBar
+            }
+            .background(detailBackground)
+        }
+        .frame(minWidth: 780, minHeight: 540)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var detailBackground: some View {
+        LinearGradient(
+            colors: colorScheme == .dark
+                ? [Color.white.opacity(0.04), Color.clear]
+                : [CleanerTheme.mist.opacity(0.9), Color.white.opacity(0.5)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .ignoresSafeArea()
+    }
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(CleanerTheme.heroGradient)
+                        .frame(width: 34, height: 34)
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Cleaner")
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                    Text("FGMacOS")
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 16)
+            .padding(.bottom, 14)
+
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 4) {
+                    ForEach(CleanCategory.allCases) { cat in
+                        sidebarRow(cat)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 16)
             }
         }
-        .frame(minWidth: 640, minHeight: 480)
+        .background(
+            colorScheme == .dark
+                ? Color.white.opacity(0.04)
+                : Color(red: 0.94, green: 0.93, blue: 0.91)
+        )
+    }
+
+    private func sidebarRow(_ cat: CleanCategory) -> some View {
+        let active = store.tab == cat
+        return Button {
+            store.selectTab(cat)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: cat.symbol)
+                    .font(.system(size: 12, weight: .bold))
+                    .frame(width: 22, height: 22)
+                    .foregroundStyle(active ? Color.white : CleanerTheme.accent)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(active ? Color.white.opacity(0.22) : CleanerTheme.accent.opacity(0.12))
+                    )
+                Text(cat.title)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(active ? Color.white : .primary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 9)
+            .background(sidebarRowBackground(active: active))
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func sidebarRowBackground(active: Bool) -> some View {
+        if active {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(CleanerTheme.heroGradient)
+        } else {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.clear)
+        }
     }
 
     private var header: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(store.tab.title)
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
-                if let status = store.status {
-                    Text(status)
-                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                Text(headerBlurb)
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 8)
+
+            if store.selectedBytes > 0 {
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("Selected")
+                        .font(.system(size: 9, weight: .bold, design: .rounded))
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    Text(CleanSafety.formatBytes(store.selectedBytes))
+                        .font(.system(size: 16, weight: .bold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(CleanerTheme.accentDeep)
                 }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(CleanerTheme.accent.opacity(0.12))
+                )
             }
-            Spacer()
-            if store.isScanning || store.isCleaning {
-                ProgressView().controlSize(.small)
-            }
-            Button("Scan") {
+
+            Button {
                 Task { await store.refresh() }
+            } label: {
+                Label(store.isScanning ? "Scanning…" : "Scan", systemImage: "arrow.clockwise")
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
             }
+            .buttonStyle(.bordered)
             .disabled(store.isScanning || store.isCleaning)
         }
-        .padding(14)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+    }
+
+    private var headerBlurb: String {
+        switch store.tab {
+        case .smartCare: return "One-tap cleanup · safe junk selected by default"
+        case .uninstaller: return "Remove apps and leftovers · Apple apps hidden"
+        case .largeOld: return "Files over 100 MB or older than 30 days"
+        case .duplicates: return "Opt-in hash scan in Downloads"
+        case .loginItems: return "Disable user LaunchAgents · reversible"
+        case .snapshots: return "Local Time Machine snapshots only"
+        case .dev: return "Xcode, simulators, npm, pip, Homebrew"
+        case .mailMessages: return "Large stale attachments → Trash"
+        case .spaceLens: return "Where disk space went"
+        case .browser: return "Caches only by default · never cookies"
+        }
     }
 
     @ViewBuilder
@@ -64,27 +183,33 @@ struct CleanerRootView: View {
         case .uninstaller:
             UninstallerTabView()
         case .duplicates:
-            VStack(alignment: .leading, spacing: 10) {
-                Toggle("Enable duplicate scan (Downloads, slow)", isOn: $store.duplicatesEnabled)
-                    .padding(.horizontal, 14)
-                    .padding(.top, 10)
-                    .fgOnChange(of: store.duplicatesEnabled) { enabled in
-                        if enabled { Task { await store.refresh() } }
-                    }
+            VStack(alignment: .leading, spacing: 0) {
+                tipBanner(
+                    title: "Duplicates stay off until you enable them",
+                    detail: "Scans ~/Downloads with size + hash matching. Slow is normal."
+                ) {
+                    Toggle("Enable scan", isOn: $store.duplicatesEnabled)
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .fgOnChange(of: store.duplicatesEnabled) { enabled in
+                            if enabled { Task { await store.refresh() } }
+                        }
+                }
                 CleanItemsListView()
             }
         case .browser:
-            VStack(alignment: .leading, spacing: 10) {
-                Toggle("Include browser history (off = cache only)", isOn: $store.includeBrowserHistory)
-                    .padding(.horizontal, 14)
-                    .padding(.top, 10)
-                    .fgOnChange(of: store.includeBrowserHistory) { _ in
-                        Task { await store.refresh() }
-                    }
-                Text("Never removes Cookies or passwords.")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 14)
+            VStack(alignment: .leading, spacing: 0) {
+                tipBanner(
+                    title: "Cookies & passwords are never touched",
+                    detail: "Quit the browser first if clean fails on locked files."
+                ) {
+                    Toggle("Include history", isOn: $store.includeBrowserHistory)
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .fgOnChange(of: store.includeBrowserHistory) { _ in
+                            Task { await store.refresh() }
+                        }
+                }
                 CleanItemsListView()
             }
         default:
@@ -92,30 +217,81 @@ struct CleanerRootView: View {
         }
     }
 
-    private var footer: some View {
-        HStack {
-            if !store.items.isEmpty {
-                Button("Select safe") { store.selectAllSafe() }
-                    .controlSize(.small)
-                Text("\(CleanSafety.formatBytes(store.selectedBytes)) selected")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+    private func tipBanner<Trailing: View>(
+        title: String,
+        detail: String,
+        @ViewBuilder trailing: () -> Trailing
+    ) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: "info.circle.fill")
+                .foregroundStyle(CleanerTheme.accent)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                Text(detail)
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
                     .foregroundStyle(.secondary)
             }
-            Spacer()
-            if let result = store.lastResult {
-                Text(result.summary)
+            Spacer(minLength: 8)
+            trailing()
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(CleanerTheme.accent.opacity(0.08))
+                .padding(.horizontal, 14)
+                .padding(.top, 8)
+        )
+    }
+
+    private var footerBar: some View {
+        HStack(spacing: 10) {
+            if !store.items.isEmpty {
+                Button("Select safe") { store.selectAllSafe() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+            if let status = store.status, store.isScanning || store.isCleaning {
+                ProgressView().controlSize(.mini)
+                Text(status)
                     .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            } else if let result = store.lastResult {
+                Image(systemName: "checkmark.seal.fill")
+                    .foregroundStyle(TurboTheme.bandColor(.good))
+                Text(result.summary)
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .foregroundStyle(TurboTheme.bandColor(.good))
                     .lineLimit(1)
             }
-            Button("Clean selected") {
+            Spacer()
+            Button {
                 Task { await store.cleanSelected() }
+            } label: {
+                HStack(spacing: 6) {
+                    if store.isCleaning {
+                        ProgressView().controlSize(.mini).tint(.white)
+                    }
+                    Text(store.isCleaning ? "Cleaning…" : "Clean selected")
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 9)
+                .background(
+                    Capsule()
+                        .fill(store.items.contains(where: \.selected)
+                              ? CleanerTheme.heroGradient
+                              : LinearGradient(colors: [Color.gray.opacity(0.45), Color.gray.opacity(0.35)], startPoint: .leading, endPoint: .trailing))
+                )
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .disabled(store.isCleaning || store.items.filter(\.selected).isEmpty)
+            .buttonStyle(.plain)
+            .disabled(store.isCleaning || !store.items.contains(where: \.selected))
         }
-        .padding(12)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(.bar)
     }
 }
 
@@ -124,59 +300,124 @@ struct CleanItemsListView: View {
 
     var body: some View {
         if store.items.isEmpty {
-            VStack(spacing: 8) {
-                Spacer()
-                Image(systemName: "tray")
-                    .font(.system(size: 28, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                Text(store.isScanning ? "Scanning…" : "Nothing found")
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
-                Text(store.status ?? "Tap Scan to refresh.")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                Spacer()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            CleanerEmptyState(
+                symbol: store.isScanning ? "hourglass" : "tray",
+                title: store.isScanning ? "Scanning…" : "Nothing to clean here",
+                detail: store.status ?? "Tap Scan — or pick another category."
+            )
         } else {
-            List {
-                ForEach(store.items) { item in
-                    HStack(alignment: .top, spacing: 10) {
-                        Toggle("", isOn: Binding(
-                            get: { item.selected },
-                            set: { _ in store.toggleItem(item.id) }
-                        ))
-                        .labelsHidden()
-                        .disabled(store.isCleaning)
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(item.title)
-                                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                            if !item.subtitle.isEmpty {
-                                Text(item.subtitle)
-                                    .font(.system(size: 10, weight: .medium))
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(2)
-                            }
-                        }
-                        Spacer()
-                        if item.bytes > 0 {
-                            Text(CleanSafety.formatBytes(item.bytes))
-                                .font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
-                        }
-                        if let path = item.paths.first {
-                            Button {
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    ForEach(store.items) { item in
+                        CleanItemCard(item: item) {
+                            store.toggleItem(item.id)
+                        } reveal: {
+                            if let path = item.paths.first {
                                 store.reveal(path)
-                            } label: {
-                                Image(systemName: "folder")
                             }
-                            .buttonStyle(.borderless)
-                            .help("Reveal in Finder")
                         }
+                        .disabled(store.isCleaning)
                     }
-                    .padding(.vertical, 2)
                 }
+                .padding(14)
             }
-            .listStyle(.inset)
         }
+    }
+}
+
+struct CleanItemCard: View {
+    let item: CleanItem
+    let toggle: () -> Void
+    let reveal: () -> Void
+
+    var body: some View {
+        Button(action: toggle) {
+            HStack(alignment: .center, spacing: 12) {
+                Image(systemName: item.selected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(item.selected ? CleanerTheme.accent : Color.secondary.opacity(0.45))
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text(item.title)
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        riskChip
+                    }
+                    if !item.subtitle.isEmpty {
+                        Text(item.subtitle)
+                            .font(.system(size: 10, weight: .medium, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+                Spacer(minLength: 8)
+                if item.bytes > 0 {
+                    Text(CleanSafety.formatBytes(item.bytes))
+                        .font(.system(size: 12, weight: .bold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(.primary.opacity(0.8))
+                }
+                Button(action: reveal) {
+                    Image(systemName: "folder")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .padding(6)
+                        .background(Circle().fill(Color.primary.opacity(0.06)))
+                }
+                .buttonStyle(.plain)
+                .help("Reveal in Finder")
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(item.selected ? CleanerTheme.accent.opacity(0.10) : Color.primary.opacity(0.04))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(item.selected ? CleanerTheme.accent.opacity(0.35) : Color.primary.opacity(0.06), lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var riskChip: some View {
+        Text(CleanerTheme.riskLabel(item.risk))
+            .font(.system(size: 9, weight: .bold, design: .rounded))
+            .foregroundStyle(CleanerTheme.riskColor(item.risk))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(
+                Capsule().fill(CleanerTheme.riskColor(item.risk).opacity(0.14))
+            )
+    }
+}
+
+struct CleanerEmptyState: View {
+    let symbol: String
+    let title: String
+    let detail: String
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            ZStack {
+                Circle()
+                    .fill(CleanerTheme.accent.opacity(0.12))
+                    .frame(width: 72, height: 72)
+                Image(systemName: symbol)
+                    .font(.system(size: 28, weight: .semibold))
+                    .foregroundStyle(CleanerTheme.accent)
+            }
+            Text(title)
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+            Text(detail)
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 320)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

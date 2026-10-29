@@ -19,14 +19,16 @@ enum CleanerWindowController {
 
         let hosting = NSHostingController(rootView: root)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 720, height: 560),
-            styleMask: [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView],
+            contentRect: NSRect(x: 0, y: 0, width: 860, height: 600),
+            styleMask: [.titled, .closable, .resizable, .miniaturizable],
             backing: .buffered,
             defer: false
         )
         window.title = "Cleaner — FGMacOS Optimizer"
+        window.titlebarAppearsTransparent = false
         window.contentViewController = hosting
-        window.minSize = NSSize(width: 640, height: 480)
+        window.minSize = NSSize(width: 780, height: 540)
+        window.backgroundColor = NSColor.windowBackgroundColor
         window.center()
         window.isReleasedWhenClosed = false
         window.makeKeyAndOrderFront(nil)

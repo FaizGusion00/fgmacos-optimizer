@@ -78,6 +78,7 @@
 		ECC9EE1CD2679216279AE330 /* TurboButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F09482508DF1BDDADB07271 /* TurboButton.swift */; };
 		EF08C40251CF564E316EDB1D /* DuplicateScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7431E95D53DCE579F146C6C5 /* DuplicateScanner.swift */; };
 		F1567E9E01A7C465349D9B66 /* BatteryMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2C9C4C843612E85CA5A618E /* BatteryMonitor.swift */; };
+		F23879EE92CE16A4C84F513F /* CleanerTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07D1C46AF9622825370866D4 /* CleanerTheme.swift */; };
 		F3E028E01EFD5081241321EF /* SmartCareEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE5EF0690C6161D4F09701B6 /* SmartCareEngine.swift */; };
 		F3E96C5F086EDFE432DCBD67 /* ActionReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8A68220D9F7CDA6DF5DEB9D /* ActionReport.swift */; };
 		F47252E2F4424338B24FD0ED /* MetricsSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA398E832F81234ABD91F813 /* MetricsSampler.swift */; };
@@ -113,6 +114,7 @@
 /* Begin PBXFileReference section */
 		0372258BBF125EE1F3534FDF /* DevCleanupPack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevCleanupPack.swift; sourceTree = "<group>"; };
 		06673327378D82BE1B215F18 /* ProcessCPUSampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessCPUSampler.swift; sourceTree = "<group>"; };
+		07D1C46AF9622825370866D4 /* CleanerTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CleanerTheme.swift; sourceTree = "<group>"; };
 		0F5DD4A8B67BD7FF2DC937C5 /* LargeOldScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LargeOldScanner.swift; sourceTree = "<group>"; };
 		0F81A6DA161DF9CCF0A33F4A /* CleanerExtraTabs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CleanerExtraTabs.swift; sourceTree = "<group>"; };
 		10DED991E6E4280B06CADF5D /* MachCPU.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachCPU.swift; sourceTree = "<group>"; };
@@ -202,6 +204,7 @@
 			children = (
 				0F81A6DA161DF9CCF0A33F4A /* CleanerExtraTabs.swift */,
 				D945E6971A8FC047403DB6A1 /* CleanerRootView.swift */,
+				07D1C46AF9622825370866D4 /* CleanerTheme.swift */,
 			);
 			path = Cleaner;
 			sourceTree = "<group>";
@@ -598,6 +601,7 @@
 				3AE15EC17FDF285F3559512C /* CleanerExtraTabs.swift in Sources */,
 				BB1F51E045BDF67A0CC4CBEB /* CleanerRootView.swift in Sources */,
 				2B8B727DFE62BDD7477E6DFC /* CleanerStore.swift in Sources */,
+				F23879EE92CE16A4C84F513F /* CleanerTheme.swift in Sources */,
 				0C49726328EBD0EDE08580E3 /* CleanerWindowController.swift in Sources */,
 				1C934202538CD58D5516EF7F /* Compatibility.swift in Sources */,
 				49DC0FCBB135F5ED98288813 /* DevCleanupPack.swift in Sources */,

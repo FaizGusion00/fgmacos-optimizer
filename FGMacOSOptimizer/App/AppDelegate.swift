@@ -29,7 +29,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
             self?.showPopoverFromStatusItem()
-            if !PermissionManager.shared.hasCompletedOnboarding {
+            if ProcessInfo.processInfo.arguments.contains("--open-cleaner") {
+                CleanerWindowController.show()
+            } else if !PermissionManager.shared.hasCompletedOnboarding {
                 PermissionsWindowController.show()
             } else {
                 self?.flashLaunchNotice()
