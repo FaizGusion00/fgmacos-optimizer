@@ -47,7 +47,7 @@ struct StatusGaugesView: View {
                     band: metrics.memoryPressureColorBand,
                     centerText: "\(Int((metrics.memoryUsedFraction * 100).rounded()))%",
                     caption: "\(SystemMetrics.formatGB(metrics.memoryAvailableBytes)) free",
-                    symbol: "memorychip.fill"
+                    symbol: "memorychip"
                 )
                 CircularGauge(
                     title: "CPU",
@@ -55,7 +55,7 @@ struct StatusGaugesView: View {
                     band: metrics.cpuColorBand,
                     centerText: "\(Int((metrics.cpuUsageFraction * 100).rounded()))%",
                     caption: "live",
-                    symbol: "cpu.fill"
+                    symbol: "cpu"
                 )
                 CircularGauge(
                     title: "Disk",
@@ -63,7 +63,7 @@ struct StatusGaugesView: View {
                     band: metrics.diskColorBand,
                     centerText: "\(Int((metrics.diskUsedFraction * 100).rounded()))%",
                     caption: "\(SystemMetrics.formatGB(metrics.diskAvailableBytes)) free",
-                    symbol: "internaldrive.fill"
+                    symbol: "internaldrive"
                 )
                 CircularGauge(
                     title: "Thermal",
@@ -71,7 +71,7 @@ struct StatusGaugesView: View {
                     band: metrics.thermalLevel.band,
                     centerText: metrics.thermalLevel.title,
                     caption: "system",
-                    symbol: "thermometer.medium"
+                    symbol: "thermometer"
                 )
             }
             .animation(MotionTokens.gauge, value: metrics.cpuUsageFraction)

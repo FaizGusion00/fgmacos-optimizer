@@ -30,7 +30,7 @@ struct TurboButton: View {
                 }
 
                 HStack(spacing: 10) {
-                    Image(systemName: isActive ? "bolt.fill" : "gauge.with.needle.fill")
+                    Image(systemName: isActive ? "bolt.fill" : "gauge.medium")
                         .font(.system(size: 17, weight: .bold))
                         .fgSymbolBounce(value: pressed)
 

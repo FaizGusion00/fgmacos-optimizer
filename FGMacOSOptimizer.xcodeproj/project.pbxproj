@@ -14,6 +14,7 @@
 		0DA2DC4FBE148BE74FBBFFD9 /* AuthSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C8C33FCE22DA2949A482355 /* AuthSessionView.swift */; };
 		1C934202538CD58D5516EF7F /* Compatibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6AD60AC1CECFF1E4FC73325 /* Compatibility.swift */; };
 		294A10EA09FCFFF134C7A1DA /* VibrancyBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B4E739B96CDCDB0EAE93AE /* VibrancyBackground.swift */; };
+		34C54AF6C2ACA44A0ECBF9CF /* StatusBarSymbol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35B1D1D732752174879B16C8 /* StatusBarSymbol.swift */; };
 		38066050AC32888B90744C62 /* SessionAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76536244AC6882B957B4489F /* SessionAuth.swift */; };
 		3AC8237CA8A5FE1CF2F290DD /* MetricSmoother.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1D234BBCEE7D55CF442C6C0 /* MetricSmoother.swift */; };
 		3D47AD448AEE62EB0845D531 /* AppearanceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7ABE9A743852BF89DFB4C83A /* AppearanceStore.swift */; };
@@ -59,6 +60,7 @@
 		264C407C4F10E876E4F39557 /* AppLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLog.swift; sourceTree = "<group>"; };
 		2E87248581B0B9B299998C8B /* PermissionsGuideView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsGuideView.swift; sourceTree = "<group>"; };
 		2F09482508DF1BDDADB07271 /* TurboButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurboButton.swift; sourceTree = "<group>"; };
+		35B1D1D732752174879B16C8 /* StatusBarSymbol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBarSymbol.swift; sourceTree = "<group>"; };
 		3A73324D2909BFCA36A045BE /* DiskMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskMonitor.swift; sourceTree = "<group>"; };
 		3F2C64EC4A5C622E1B60558C /* TurboModeEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurboModeEngine.swift; sourceTree = "<group>"; };
 		53853BA4799A034FF8286C7C /* SystemCleaner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemCleaner.swift; sourceTree = "<group>"; };
@@ -160,6 +162,7 @@
 				2E87248581B0B9B299998C8B /* PermissionsGuideView.swift */,
 				A3A527580E6A4483EF2C480D /* PermissionsWindowController.swift */,
 				76536244AC6882B957B4489F /* SessionAuth.swift */,
+				35B1D1D732752174879B16C8 /* StatusBarSymbol.swift */,
 				6CE4C59DE78301160CB7BE47 /* WhitelistStore.swift */,
 			);
 			path = Support;
@@ -368,6 +371,7 @@
 				E2D56FAFE3E02CB62C62CB22 /* ProcessCPUSampler.swift in Sources */,
 				38066050AC32888B90744C62 /* SessionAuth.swift in Sources */,
 				4E36FEC33C6AFEBCE5B59A29 /* StartupSettingsView.swift in Sources */,
+				34C54AF6C2ACA44A0ECBF9CF /* StatusBarSymbol.swift in Sources */,
 				C8F49EF4141AA0CBC5F36692 /* StatusGaugesView.swift in Sources */,
 				63CBC893AF35D5D8875C6F8A /* SystemCleaner.swift in Sources */,
 				76B46C0B0381DE4AF4714B75 /* SystemMetrics.swift in Sources */,
@@ -394,7 +398,7 @@
 				CODE_SIGN_ENTITLEMENTS = FGMacOSOptimizer/Resources/FGMacOSOptimizer.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				EXCLUDED_ARCHS = "";
@@ -402,7 +406,7 @@
 				INFOPLIST_FILE = FGMacOSOptimizer/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
 				LSUIElement = YES;
-				MARKETING_VERSION = 1.0.2;
+				MARKETING_VERSION = 1.0.3;
 				ONLY_ACTIVE_ARCH = NO;
 				OTHER_LDFLAGS = "$(inherited) -lproc";
 				PRODUCT_BUNDLE_IDENTIFIER = com.fgmacos.optimizer;
@@ -541,7 +545,7 @@
 				CODE_SIGN_ENTITLEMENTS = FGMacOSOptimizer/Resources/FGMacOSOptimizer.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				EXCLUDED_ARCHS = "";
@@ -549,7 +553,7 @@
 				INFOPLIST_FILE = FGMacOSOptimizer/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
 				LSUIElement = YES;
-				MARKETING_VERSION = 1.0.2;
+				MARKETING_VERSION = 1.0.3;
 				ONLY_ACTIVE_ARCH = NO;
 				OTHER_LDFLAGS = "$(inherited) -lproc";
 				PRODUCT_BUNDLE_IDENTIFIER = com.fgmacos.optimizer;

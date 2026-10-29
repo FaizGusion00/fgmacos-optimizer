@@ -68,17 +68,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // MARK: - Status Item
 
     private func setupStatusItem() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        // Fixed square length so Ventura always reserves menu-bar space even if image falls back.
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = item.button {
-            button.image = NSImage(
-                systemSymbolName: "gauge.with.dots.needle.67percent",
-                accessibilityDescription: "FGMacOS Optimizer"
-            )
-            button.image?.isTemplate = true
+            button.image = StatusBarSymbol.image(turboActive: false)
+            button.imagePosition = .imageOnly
+            button.toolTip = "FGMacOS Optimizer"
             button.action = #selector(togglePopover(_:))
             button.target = self
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
         statusItem = item
+        AppLog.metrics.info("Status item created (menu bar)")
     }
 
     private func setupPopover() {
@@ -146,9 +147,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func updateStatusIcon(turboActive: Bool) {
         guard let button = statusItem?.button else { return }
-        let name = turboActive ? "bolt.fill" : "gauge.with.dots.needle.67percent"
-        button.image = NSImage(systemSymbolName: name, accessibilityDescription: "FGMacOS Optimizer")
-        button.image?.isTemplate = !turboActive
+        button.image = StatusBarSymbol.image(turboActive: turboActive)
+        button.title = ""
         if turboActive {
             button.contentTintColor = NSColor.systemRed
         } else {

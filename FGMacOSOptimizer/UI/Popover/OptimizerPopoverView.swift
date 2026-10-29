@@ -147,7 +147,7 @@ struct OptimizerPopoverView: View {
                     .fill(theme.turboGradient)
                     .frame(width: 40, height: 40)
                     .shadow(color: theme.accent.opacity(0.45), radius: 8, y: 2)
-                Image(systemName: appState.isTurboActive ? "bolt.fill" : "gauge.with.dots.needle.67percent")
+                Image(systemName: appState.isTurboActive ? "bolt.fill" : "gauge.medium")
                     .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(.white)
                     .fgSymbolPulse(isActive: appState.isTurboActive)
@@ -199,7 +199,7 @@ struct OptimizerPopoverView: View {
 
             Spacer()
 
-            Text("v1.0.2")
+            Text("v1.0.3")
                 .font(Design.Text.micro)
                 .foregroundStyle(tertiary)
 

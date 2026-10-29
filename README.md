@@ -4,14 +4,14 @@ Premium macOS **menu-bar** optimizer — live metrics, Turbo Mode, Smart Watchdo
 
 ## Download & install
 
-**Latest release:** [FGMacOS Optimizer v1.0.2](https://github.com/FaizGusion00/fgmacos-optimizer/releases/tag/v1.0.2)
+**Latest release:** [FGMacOS Optimizer v1.0.3](https://github.com/FaizGusion00/fgmacos-optimizer/releases/tag/v1.0.3)
 
 | File | What to do |
 |------|------------|
-| **[FGMacOS-Optimizer-v1.0.2.dmg](https://github.com/FaizGusion00/fgmacos-optimizer/releases/download/v1.0.2/FGMacOS-Optimizer-v1.0.2.dmg)** | Open DMG → drag **FGMacOS Optimizer** into **Applications** |
-| [FGMacOS-Optimizer-v1.0.2-macos.zip](https://github.com/FaizGusion00/fgmacos-optimizer/releases/download/v1.0.2/FGMacOS-Optimizer-v1.0.2-macos.zip) | Unzip → move `.app` into Applications |
+| **[FGMacOS-Optimizer-v1.0.3.dmg](https://github.com/FaizGusion00/fgmacos-optimizer/releases/download/v1.0.3/FGMacOS-Optimizer-v1.0.3.dmg)** | Open DMG → drag **FGMacOS Optimizer** into **Applications** |
+| [FGMacOS-Optimizer-v1.0.3-macos.zip](https://github.com/FaizGusion00/fgmacos-optimizer/releases/download/v1.0.3/FGMacOS-Optimizer-v1.0.3-macos.zip) | Unzip → move `.app` into Applications |
 
-Universal binary (Apple Silicon **and** Intel). macOS 13 Ventura+.
+Universal binary (Apple Silicon **and** Intel). macOS 13 Ventura+. Menu-bar icon uses Ventura-safe SF Symbols.
 
 First launch: right-click the app → **Open** (ad-hoc signed; Gatekeeper may warn).  
 App lives in the **menu bar** (gauge / bolt icon) — no Dock icon.
