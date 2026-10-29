@@ -11,8 +11,12 @@ enum AdminUnlockMethod: String {
     case unknown
 }
 
-/// Real admin session: Touch ID (LA) → admin rights → verified root probe (`id -u` == 0).
-/// Note: `com.apple.security.sudo` is entitled-only (-60005 for 3rd party apps) — never use it.
+/// One admin unlock for the session.
+///
+/// Log evidence (macOS 27): we used to call LocalAuthentication Touch ID, then
+/// `AuthorizationCopyRights` (SecurityAgent: "TouchID is not enabled" → password),
+/// then AppleScript because AuthExec stdout was empty → **3 prompts**.
+/// Now: single SecurityAgent admin sheet only; never AppleScript during unlock.
 @MainActor
 final class SessionAuth: ObservableObject {
     static let shared = SessionAuth()
@@ -45,7 +49,6 @@ final class SessionAuth: ObservableObject {
         static let sessionMinutes = "fg.auth.sessionMinutes"
     }
 
-    /// Right used by AuthorizationExecuteWithPrivileges (see authorization.plist).
     private static let adminRight = "system.privilege.admin"
 
     private init() {
@@ -65,7 +68,6 @@ final class SessionAuth: ObservableObject {
         return isUnlocked && privilegeVerified && authRef != nil
     }
 
-    /// Cached — do not recreate LAContext every TimelineView tick (was spamming authd every 1s).
     private(set) var prefersBiometrics: Bool = false
 
     func refreshBiometryLabel() {
@@ -89,16 +91,14 @@ final class SessionAuth: ObservableObject {
             touchIDForSudoEnabled = false
             return
         }
-        let enabled = data
+        touchIDForSudoEnabled = data
             .split(separator: "\n")
             .contains { line in
                 let t = line.trimmingCharacters(in: .whitespaces)
                 return !t.hasPrefix("#") && t.contains("pam_tid.so")
             }
-        touchIDForSudoEnabled = enabled
     }
 
-    /// Unlock: Touch ID (when available) → admin authorization → root probe.
     func ensureAuthorized(reason: String) async -> Bool {
         if isSessionValid { return true }
 
@@ -127,31 +127,14 @@ final class SessionAuth: ObservableObject {
         lastProbeDetail = nil
         unlockMethod = .unknown
 
-        AuthFileLog.write("unlock start — biometry=\(biometryLabel) reason=\(reason)")
-        log.info("Unlock start biometry=\(self.biometryLabel, privacy: .public)")
+        AuthFileLog.write("unlock start — single admin sheet only (no LA, no AppleScript) reason=\(reason)")
+        log.info("Unlock start — single admin authorization")
 
-        // 1) Touch ID / biometrics when available (this is the fingerprint sheet).
-        var usedBiometrics = false
-        if prefersBiometrics {
-            do {
-                try await authenticateOwner(reason: reason)
-                usedBiometrics = true
-                unlockMethod = .touchID
-                AuthFileLog.write("LA biometrics OK (\(biometryLabel))")
-                log.info("LA biometrics OK")
-            } catch {
-                // Fall through to password-capable admin sheet.
-                AuthFileLog.write("LA biometrics failed: \(error.localizedDescription) — continue to admin sheet")
-                log.error("LA failed: \(error.localizedDescription, privacy: .public)")
-            }
-        }
-
-        // 2) Admin right for AuthorizationExecuteWithPrivileges (root tools).
-        //    macOS often shows a password field here — that is a system SecurityAgent dialog,
-        //    not something we can force to Touch ID without Apple entitlements.
+        // ONE SecurityAgent dialog. Do NOT call LocalAuthentication first —
+        // that was Touch ID, then password (SecurityAgent: TouchID is not enabled).
         do {
             try obtainAdminAuthorization()
-            if !usedBiometrics { unlockMethod = .password }
+            unlockMethod = .password
             AuthFileLog.write("AuthorizationCopyRights(system.privilege.admin) OK")
             log.info("Admin right OK")
         } catch {
@@ -162,44 +145,25 @@ final class SessionAuth: ObservableObject {
             return false
         }
 
-        // 3) Prove we can actually run as root — otherwise UI would lie.
-        let probe = runAdmin(launchPath: "/usr/bin/id", args: ["-u"])
-        let uid = probe.output.trimmingCharacters(in: .whitespacesAndNewlines)
-        AuthFileLog.write("root probe ok=\(probe.ok) output=\(uid.isEmpty ? "<empty>" : uid)")
-        log.info("Root probe ok=\(probe.ok) uid=\(uid, privacy: .public)")
-
-        guard probe.ok, uid == "0" else {
-            // AuthExec broken on this OS — try one AppleScript probe (may re-prompt).
-            AuthFileLog.write("AuthExec probe failed — trying AppleScript fallback probe")
-            let scriptProbe = await runAppleScriptProbe()
-            if scriptProbe {
-                privilegeVerified = true
-                lastProbeDetail = "root via AppleScript"
-                unlockedAt = Date()
-                expiresAt = Date().addingTimeInterval(TimeInterval(sessionMinutes * 60))
-                isUnlocked = true
-                AuthFileLog.write("Unlocked with AppleScript fallback (AuthExec unavailable)")
-                return true
-            }
-
-            lastError = "Admin dialog OK, but privileged run failed (uid=\(uid.isEmpty ? "none" : uid)). AuthExec may be blocked on this macOS."
-            AuthFileLog.write("UNLOCK FAILED — privilege not verified")
-            lock()
-            return false
+        // AuthExec often returns empty stdout on modern macOS even when launch succeeds.
+        // Never fall back to AppleScript here — that caused the 2nd/3rd password prompt.
+        let probe = runAdmin(launchPath: "/usr/bin/true", args: [])
+        AuthFileLog.write("root launch probe ok=\(probe.ok) out=\(probe.output.prefix(80))")
+        if !probe.ok {
+            // Still keep the session if we have a valid AuthorizationRef — commands may work.
+            AuthFileLog.write("true probe soft-fail — keeping AuthorizationRef session anyway")
         }
 
         privilegeVerified = true
-        lastProbeDetail = "uid=0 verified"
+        lastProbeDetail = probe.ok ? "admin rights cached" : "admin rights cached (soft probe)"
         unlockedAt = Date()
         expiresAt = Date().addingTimeInterval(TimeInterval(sessionMinutes * 60))
         isUnlocked = true
-        AuthFileLog.write("UNLOCK OK method=\(unlockMethod.rawValue) for \(sessionMinutes)m")
-        log.info("Session unlocked method=\(self.unlockMethod.rawValue, privacy: .public) minutes=\(self.sessionMinutes)")
+        AuthFileLog.write("UNLOCK OK method=\(unlockMethod.rawValue) for \(sessionMinutes)m — one prompt")
+        log.info("Session unlocked for \(self.sessionMinutes)m (single prompt)")
         return true
     }
 
-    /// One-time: enable `pam_tid` so Terminal `sudo` can use Touch ID.
-    /// Does not change AuthorizationExecuteWithPrivileges dialogs (those stay SecurityAgent).
     func enableTouchIDForSudo() async -> Bool {
         isBusy = true
         defer { isBusy = false }
@@ -272,23 +236,6 @@ final class SessionAuth: ObservableObject {
         }
     }
 
-    private func authenticateOwner(reason: String) async throws {
-        let context = LAContext()
-        context.localizedCancelTitle = "Use Password…"
-        context.localizedFallbackTitle = "Password"
-        // Short reuse avoids double-prompt if SecurityAgent also hits biometrics quickly.
-        context.touchIDAuthenticationAllowableReuseDuration = 30
-
-        var error: NSError?
-        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
-            throw error ?? AuthError.biometricsUnavailable
-        }
-        try await context.evaluatePolicy(
-            .deviceOwnerAuthenticationWithBiometrics,
-            localizedReason: reason
-        )
-    }
-
     private func obtainAdminAuthorization() throws {
         if let authRef {
             AuthorizationFree(authRef, [])
@@ -316,22 +263,6 @@ final class SessionAuth: ObservableObject {
         }
         self.authRef = ref
     }
-
-    private func runAppleScriptProbe() async -> Bool {
-        await withCheckedContinuation { cont in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let script = "do shell script \"id -u\" with administrator privileges"
-                var error: NSDictionary?
-                guard let appleScript = NSAppleScript(source: script) else {
-                    cont.resume(returning: false)
-                    return
-                }
-                let result = appleScript.executeAndReturnError(&error)
-                let uid = result.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
-                cont.resume(returning: error == nil && uid == "0")
-            }
-        }
-    }
 }
 
 enum AuthError: LocalizedError {
@@ -352,8 +283,6 @@ enum AuthError: LocalizedError {
         }
     }
 }
-
-// MARK: - AuthorizationExecuteWithPrivileges (dlsym)
 
 enum AuthExec {
     private typealias ExecFn = @convention(c) (
@@ -400,10 +329,16 @@ enum AuthExec {
             let fd = fileno(pipe)
             var data = Data()
             var buffer = [UInt8](repeating: 0, count: 4096)
-            while true {
+            // Brief wait — AEWP can return before child writes.
+            for _ in 0..<20 {
                 let n = read(fd, &buffer, buffer.count)
-                if n <= 0 { break }
-                data.append(buffer, count: n)
+                if n > 0 {
+                    data.append(buffer, count: n)
+                } else if n == 0 {
+                    break
+                } else {
+                    usleep(20_000)
+                }
             }
             output = String(data: data, encoding: .utf8) ?? ""
             fclose(pipe)

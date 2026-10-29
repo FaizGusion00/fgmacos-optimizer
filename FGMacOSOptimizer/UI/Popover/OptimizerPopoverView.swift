@@ -199,7 +199,7 @@ struct OptimizerPopoverView: View {
 
             Spacer()
 
-            Text("v1.0.6")
+            Text("v1.0.7")
                 .font(Design.Text.micro)
                 .foregroundStyle(tertiary)
 

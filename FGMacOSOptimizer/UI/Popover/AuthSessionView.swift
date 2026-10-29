@@ -40,7 +40,7 @@ struct AuthSessionView: View {
                             )
                         }
                     } label: {
-                        Label("Unlock", systemImage: biometrySymbol)
+                        Label("Unlock", systemImage: "key.fill")
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.mini)
@@ -61,17 +61,6 @@ struct AuthSessionView: View {
                 .foregroundStyle(.primary.opacity(0.72))
                 .fixedSize(horizontal: false, vertical: true)
 
-            if !auth.touchIDForSudoEnabled, auth.prefersBiometrics {
-                Button {
-                    Task { _ = await auth.enableTouchIDForSudo() }
-                } label: {
-                    Label("Enable Touch ID for Terminal sudo", systemImage: "touchid")
-                        .font(Design.Text.micro)
-                }
-                .buttonStyle(.borderless)
-                .disabled(auth.isBusy)
-            }
-
             if let err = auth.lastError, !auth.isSessionValid {
                 Text(err)
                     .font(Design.Text.micro)
@@ -87,7 +76,7 @@ struct AuthSessionView: View {
 
     private var titleLine: String {
         if auth.isSessionValid {
-            return auth.privilegeVerified ? "Admin unlocked · root OK" : "Admin unlocked"
+            return auth.privilegeVerified ? "Admin unlocked · ready" : "Admin unlocked"
         }
         return "Admin locked"
     }
@@ -96,44 +85,16 @@ struct AuthSessionView: View {
         if auth.isSessionValid {
             let m = auth.remainingSeconds / 60
             let s = auth.remainingSeconds % 60
-            let via: String
-            switch auth.unlockMethod {
-            case .touchID: via = biometryLabelShort
-            case .password: via = "password"
-            case .unknown: via = "admin"
-            }
-            return String(format: "Via %@ · %d:%02d left", via, m, s)
+            return String(format: "No more prompts · %d:%02d left", m, s)
         }
-        return auth.prefersBiometrics
-            ? "Tap Unlock — \(auth.biometryLabel) first, then admin confirm"
-            : "Tap Unlock — admin password once"
+        return "Tap Unlock — one admin prompt only"
     }
 
     private var helpLine: String {
         if auth.isSessionValid, let detail = auth.lastProbeDetail {
-            return "Verified \(detail). Free RAM / Turbo reuse this session."
+            return "\(detail). Free RAM / Turbo reuse this window."
         }
-        if auth.prefersBiometrics {
-            return "\(auth.biometryLabel) confirms it’s you. macOS may still show an admin password sheet once for root tools (system limit)."
-        }
-        return "Admin password once unlocks Free RAM / Turbo for the period above."
-    }
-
-    private var biometryLabelShort: String {
-        switch auth.biometryLabel {
-        case "Face ID": return "Face ID"
-        case "Optic ID": return "Optic ID"
-        case "Touch ID": return "Touch ID"
-        default: return "password"
-        }
-    }
-
-    private var biometrySymbol: String {
-        switch auth.biometryLabel {
-        case "Face ID": return "faceid"
-        case "Optic ID": return "opticid"
-        case "Touch ID": return "touchid"
-        default: return "key.fill"
-        }
+        // Honest: SecurityAgent log on this Mac says "TouchID is not enabled" for admin elevation.
+        return "One admin unlock for the period above. macOS often uses password for root tools (Touch ID is app-login only)."
     }
 }

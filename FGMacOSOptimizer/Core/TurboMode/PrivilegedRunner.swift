@@ -23,25 +23,10 @@ enum PrivilegedRunner {
             return (false, msg)
         }
 
-        // Prefer cached AuthorizationRef. Never fall back to AppleScript here —
-        // that would ask for the password again after Touch ID already succeeded.
-        let cached = await MainActor.run {
+        // Cached AuthorizationRef only — AppleScript fallback re-prompts password.
+        return await MainActor.run {
             SessionAuth.shared.runAdmin(launchPath: launchPath, args: args)
         }
-        if cached.ok {
-            return cached
-        }
-
-        if cached.output == "Privileged execute unavailable" {
-            // Rare (API stripped). One AppleScript prompt only when session API cannot execute.
-            return await withCheckedContinuation { cont in
-                DispatchQueue.global(qos: .utility).async {
-                    cont.resume(returning: runAdminAppleScript(launchPath: launchPath, args: args))
-                }
-            }
-        }
-
-        return cached
     }
 
     /// Multiple root commands in one bash -c — keeps a single elevation for compound actions.
@@ -55,17 +40,8 @@ enum PrivilegedRunner {
             return (false, msg)
         }
 
-        let cached = await MainActor.run {
+        return await MainActor.run {
             SessionAuth.shared.runAdminShell(script)
-        }
-        if cached.ok || cached.output != "Privileged execute unavailable" {
-            return cached
-        }
-
-        return await withCheckedContinuation { cont in
-            DispatchQueue.global(qos: .utility).async {
-                cont.resume(returning: runAdminAppleScript(launchPath: "/bin/bash", args: ["-c", script]))
-            }
         }
     }
 
@@ -87,32 +63,4 @@ enum PrivilegedRunner {
         }
     }
 
-    /// Last resort only when AuthorizationExecuteWithPrivileges is unavailable.
-    private static func runAdminAppleScript(launchPath: String, args: [String]) -> (Bool, String) {
-        let escapedArgs = args.map { arg -> String in
-            let escaped = arg
-                .replacingOccurrences(of: "\\", with: "\\\\")
-                .replacingOccurrences(of: "\"", with: "\\\"")
-            return "\"\(escaped)\""
-        }.joined(separator: " ")
-
-        let shell = "\(launchPath) \(escapedArgs)"
-        let escapedShell = shell
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-
-        let script = "do shell script \"\(escapedShell)\" with administrator privileges"
-        var error: NSDictionary?
-        if let appleScript = NSAppleScript(source: script) {
-            let result = appleScript.executeAndReturnError(&error)
-            if let error {
-                let message = (error[NSAppleScript.errorMessage] as? String)
-                    ?? (error["NSAppleScriptErrorMessage"] as? String)
-                    ?? error.description
-                return (false, message)
-            }
-            return (true, result.stringValue ?? "")
-        }
-        return (false, "Failed to create AppleScript")
-    }
 }
