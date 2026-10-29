@@ -4,12 +4,14 @@ Premium macOS **menu-bar** optimizer — live metrics, Turbo Mode, Smart Watchdo
 
 ## Download & install
 
-**Latest release:** [FGMacOS Optimizer v1.0.1](https://github.com/FaizGusion00/fgmacos-optimizer/releases/tag/v1.0.1)
+**Latest release:** [FGMacOS Optimizer v1.0.2](https://github.com/FaizGusion00/fgmacos-optimizer/releases/tag/v1.0.2)
 
 | File | What to do |
 |------|------------|
-| **[FGMacOS-Optimizer-v1.0.1.dmg](https://github.com/FaizGusion00/fgmacos-optimizer/releases/download/v1.0.1/FGMacOS-Optimizer-v1.0.1.dmg)** | Open DMG → drag **FGMacOS Optimizer** into **Applications** |
-| [FGMacOS-Optimizer-v1.0.1-macos.zip](https://github.com/FaizGusion00/fgmacos-optimizer/releases/download/v1.0.1/FGMacOS-Optimizer-v1.0.1-macos.zip) | Unzip → move `.app` into Applications |
+| **[FGMacOS-Optimizer-v1.0.2.dmg](https://github.com/FaizGusion00/fgmacos-optimizer/releases/download/v1.0.2/FGMacOS-Optimizer-v1.0.2.dmg)** | Open DMG → drag **FGMacOS Optimizer** into **Applications** |
+| [FGMacOS-Optimizer-v1.0.2-macos.zip](https://github.com/FaizGusion00/fgmacos-optimizer/releases/download/v1.0.2/FGMacOS-Optimizer-v1.0.2-macos.zip) | Unzip → move `.app` into Applications |
+
+Universal binary (Apple Silicon **and** Intel). macOS 13 Ventura+.
 
 First launch: right-click the app → **Open** (ad-hoc signed; Gatekeeper may warn).  
 App lives in the **menu bar** (gauge / bolt icon) — no Dock icon.
