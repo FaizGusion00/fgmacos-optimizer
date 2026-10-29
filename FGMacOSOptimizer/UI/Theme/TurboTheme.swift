@@ -2,7 +2,7 @@ import SwiftUI
 
 enum Design {
     static let popoverWidth: CGFloat = 360
-    static let popoverHeight: CGFloat = 780
+    static let popoverHeight: CGFloat = 820
     static let radius: CGFloat = 16
     static let radiusSm: CGFloat = 12
 

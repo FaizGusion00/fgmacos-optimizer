@@ -31,6 +31,10 @@ struct ActionButtonsView: View {
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
+            if let report = appState.lastReport {
+                ActionReportBanner(report: report)
+            }
+
             HStack(spacing: 10) {
                 ActionChip(title: "Free RAM", symbol: "arrow.3.trianglepath", tint: Color(red: 0.35, green: 0.55, blue: 1.0)) {
                     appState.freeRAM()
@@ -41,23 +45,6 @@ struct ActionButtonsView: View {
                 ActionChip(title: "Kill Hogs", symbol: "xmark.octagon.fill", tint: Color.red) {
                     appState.killHogs()
                 }
-            }
-
-            if let result = appState.lastCleanResult {
-                HStack(spacing: 6) {
-                    Image(systemName: "sparkles")
-                        .foregroundStyle(TurboTheme.bandColor(.good))
-                    Text(result.summary)
-                        .font(Design.Text.caption)
-                        .foregroundStyle(.primary.opacity(0.78))
-                        .lineLimit(2)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(TurboTheme.bandColor(.good).opacity(0.1))
-                )
             }
         }
     }
@@ -79,26 +66,32 @@ private struct ActionChip: View {
         } label: {
             VStack(spacing: 6) {
                 Image(systemName: symbol)
-                    .font(.system(size: 16, weight: .semibold))
-                    .fgSymbolBounce(value: bounced)
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(tint)
+                    .symbolEffectBounce(value: bounced)
                 Text(title)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.primary.opacity(0.85))
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
+            .padding(.vertical, 10)
             .background(
-                RoundedRectangle(cornerRadius: Design.radiusSm, style: .continuous)
-                    .fill(tint.opacity(hover ? 0.22 : 0.14))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Design.radiusSm, style: .continuous)
-                            .stroke(tint.opacity(0.25), lineWidth: 1)
-                    )
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(tint.opacity(hover ? 0.16 : 0.10))
             )
-            .foregroundStyle(tint)
-            .scaleEffect(hover ? 1.03 : 1.0)
-            .animation(MotionTokens.panel, value: hover)
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func symbolEffectBounce(value: Bool) -> some View {
+        if #available(macOS 14.0, *) {
+            self.symbolEffect(.bounce, value: value)
+        } else {
+            self
+        }
     }
 }

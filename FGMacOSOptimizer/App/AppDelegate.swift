@@ -10,6 +10,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var popover: NSPopover?
     private var eventMonitor: Any?
     private var cancellables = Set<AnyCancellable>()
+    private var lastMeterTitle = ""
+    private var lastMeterUpdate = Date.distantPast
 
     let appState = AppState()
 
@@ -19,12 +21,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         setupStatusItem()
         setupPopover()
         bindStatusIcon()
+        bindMeters()
         bindAppearance()
         appState.start()
         AppearanceStore.shared.applyNow()
         AppLog.lifeFile("didFinishLaunching pid=\(ProcessInfo.processInfo.processIdentifier) path=\(Bundle.main.bundlePath)")
 
-        // Make launch obvious: menu-bar apps have no Dock icon, so open UI once.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
             self?.showPopoverFromStatusItem()
             if !PermissionManager.shared.hasCompletedOnboarding {
@@ -35,8 +37,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    /// Critical for LSUIElement apps: closing the launch alert / Permissions window
-    /// must NOT quit the process (otherwise it looks like “auto close”).
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }
@@ -51,7 +51,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return .terminateNow
     }
 
-    /// Opens the menu-bar popover programmatically (used on launch).
     func showPopoverFromStatusItem() {
         guard let button = statusItem?.button, let popover, !popover.isShown else { return }
         appState.popoverDidOpen()
@@ -61,9 +60,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func flashLaunchNotice() {
-        // Once per day — menu-bar apps have no Dock icon so users think launch failed.
-        // Use a user notification instead of a modal alert: modal alerts count as windows and
-        // on some macOS versions quitting after the last window closed killed the menu-bar app.
         let key = "fg.launch.notice.\(Calendar.current.startOfDay(for: Date()).timeIntervalSince1970)"
         guard !UserDefaults.standard.bool(forKey: key) else { return }
         UserDefaults.standard.set(true, forKey: key)
@@ -97,11 +93,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // MARK: - Status Item
 
     private func setupStatusItem() {
-        // Fixed square length so Ventura always reserves menu-bar space even if image falls back.
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = item.button {
             button.image = StatusBarSymbol.image(turboActive: false)
-            button.imagePosition = .imageOnly
+            button.imagePosition = .imageLeading
             button.toolTip = "FGMacOS Optimizer"
             button.action = #selector(togglePopover(_:))
             button.target = self
@@ -134,7 +129,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .store(in: &cancellables)
     }
 
-    /// Core Animation pulse — no 20 Hz `@Published` spam on the main actor.
+    private func bindMeters() {
+        appState.$displayMetrics
+            .combineLatest(FeatureSettingsStore.shared.$showMenuBarMeters, appState.focus.$active)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] metrics, showMeters, focus in
+                self?.updateMeters(metrics: metrics, showMeters: showMeters, focus: focus)
+            }
+            .store(in: &cancellables)
+    }
+
+    private func updateMeters(metrics: SystemMetrics, showMeters: Bool, focus: FocusProfile) {
+        guard let button = statusItem?.button else { return }
+        let now = Date()
+        // Throttle title thrash when popover closed.
+        if now.timeIntervalSince(lastMeterUpdate) < 2.5, !appState.isOptimizing {
+            // still refresh tooltip lightly
+        } else {
+            lastMeterUpdate = now
+            if showMeters, metrics.timestamp > .distantPast {
+                let cpu = Int((metrics.cpuUsageFraction * 100).rounded())
+                let ram = SystemMetrics.formatGB(metrics.memoryAvailableBytes)
+                    .replacingOccurrences(of: " GB", with: "G")
+                let title = "\(cpu)% · \(ram)"
+                if title != lastMeterTitle {
+                    lastMeterTitle = title
+                    button.title = " \(title)"
+                    button.imagePosition = .imageLeading
+                }
+            } else {
+                if lastMeterTitle != "" {
+                    lastMeterTitle = ""
+                    button.title = ""
+                    button.imagePosition = .imageOnly
+                }
+            }
+        }
+
+        var tip = "FGMacOS Optimizer"
+        if focus != .off { tip += " · \(focus.title)" }
+        tip += " · CPU \(Int(metrics.cpuUsageFraction * 100))% · RAM \(SystemMetrics.formatGB(metrics.memoryAvailableBytes)) free"
+        tip += " · \(metrics.thermalLevel.title) · Pressure \(metrics.memoryPressure.title)"
+        button.toolTip = tip
+    }
+
     private func setBreathingAnimation(active: Bool) {
         guard let button = statusItem?.button else { return }
         button.layer?.removeAnimation(forKey: "fg.breath")
@@ -169,7 +207,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         popover?.appearance = ns
         popover?.contentViewController?.view.appearance = ns
         popover?.contentViewController?.view.window?.appearance = ns
-        // Force redraw
         popover?.contentViewController?.view.needsDisplay = true
         popover?.contentViewController?.view.subviews.forEach { $0.needsDisplay = true }
     }
@@ -177,7 +214,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func updateStatusIcon(turboActive: Bool) {
         guard let button = statusItem?.button else { return }
         button.image = StatusBarSymbol.image(turboActive: turboActive)
-        button.title = ""
         if turboActive {
             button.contentTintColor = NSColor.systemRed
         } else {
@@ -218,7 +254,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    // MARK: - Notifications (Watchdog Kill Now)
+    // MARK: - Notifications
 
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
@@ -230,6 +266,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         Task { @MainActor in
             if response.actionIdentifier == WatchdogEngine.killActionID, pid > 1 {
                 await appState.watchdog.forceKillPID(pid)
+            } else if response.notification.request.identifier == "fg.smart.ram" {
+                appState.freeRAM(skipConfirm: true, fromSmartSuggest: true)
             } else if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
                 showPopoverFromStatusItem()
             }

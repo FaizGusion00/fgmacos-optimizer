@@ -4,11 +4,11 @@ Premium macOS **menu-bar** optimizer — live metrics, Turbo Mode, Smart Watchdo
 
 ## Download & install
 
-**Latest release:** [FGMacOS Optimizer v1.0.6](https://github.com/FaizGusion00/fgmacos-optimizer/releases/tag/v1.0.6)
+**Latest release:** [FGMacOS Optimizer v1.8.0](https://github.com/FaizGusion00/fgmacos-optimizer/releases/tag/v1.8.0)
 
 | File | What to do |
 |------|------------|
-| **[FGMacOS-Optimizer-v1.0.6.dmg](https://github.com/FaizGusion00/fgmacos-optimizer/releases/download/v1.0.6/FGMacOS-Optimizer-v1.0.6.dmg)** | Open DMG → baca **BACA-INI.txt** → right-click **00-INSTALL.command** → Open |
+| **[FGMacOS-Optimizer-v1.8.0.dmg](https://github.com/FaizGusion00/fgmacos-optimizer/releases/download/v1.8.0/FGMacOS-Optimizer-v1.8.0.dmg)** | Open DMG → baca **BACA-INI.txt** → right-click **00-INSTALL.command** → Open |
 
 ### “Apple could not verify…” / button **Done** only
 Gatekeeper (unsigned free app). **Not malware.** After you click Done once:
@@ -28,12 +28,19 @@ App lives in the **menu bar** (gauge / bolt icon) — no Dock icon.
 
 ## Features
 
-- **Status gauges** — RAM / CPU / Disk / Thermal / Battery (Mach-backed, smoothed)
-- **Turbo Mode** — pause Spotlight *indexing* (search still works), stop Time Machine backup, clear Xcode Derived Data
-- **Free RAM** — purge reclaimable disk cache
-- **Watchdog** — CPU hog + not-responding detection with whitelist (Cursor, Terminal, Docker, …)
-- **Deep Cleaner** — selective `~/Library/Caches`, DNS flush, Docker dangling volume prune
-- **Security session** — Touch ID when available + timed admin unlock
+- **Menu-bar meters** — live CPU% · free RAM beside the icon
+- **Focus profiles** — Meeting / Coding / Gaming (Turbo + leftovers + Low Power)
+- **Status gauges** — RAM (with memory pressure) / CPU / Disk / Thermal / Battery
+- **Before/after reports** — 3s banner after Free RAM, Clean, Kill, Focus, Cool down
+- **Smart Free RAM** — suggest on pressure; optional auto (off by default, 30 min cooldown)
+- **Storage map** — Caches / Downloads / DerivedData / Docker / Trash + one-tap clean
+- **Network pulse** — up/down rates, top talker, Flush DNS
+- **Thermal cool-down** — why it’s hot + kill hogs + Low Power on battery
+- **24h CPU hall of fame** — history + Quit leftovers
+- **Turbo Mode** — pause Spotlight *indexing*, stop Time Machine backup, clear Derived Data
+- **Watchdog** — CPU hog + hung apps with whitelist
+- **Shortcuts + Widget** — Free RAM / Turbo / DNS via Shortcuts; Notification Center widget
+- **Security session** — one admin unlock reused for the timed window
 - **Appearance** — Auto / Light / Dark · Open at Login
 
 ## Build from source

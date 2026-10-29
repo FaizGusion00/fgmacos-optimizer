@@ -18,6 +18,7 @@ struct SystemMetrics: Equatable, Sendable {
     var batteryPercent: Double
     var batteryHasBattery: Bool
     var batteryCharging: Bool
+    var memoryPressure: MemoryPressureLevel
     var timestamp: Date
 
     static let zero = SystemMetrics(
@@ -37,6 +38,7 @@ struct SystemMetrics: Equatable, Sendable {
         batteryPercent: 1,
         batteryHasBattery: false,
         batteryCharging: false,
+        memoryPressure: .normal,
         timestamp: .distantPast
     )
 
@@ -53,10 +55,15 @@ struct SystemMetrics: Equatable, Sendable {
     }
 
     var memoryPressureColorBand: MetricBand {
+        if memoryPressure != .normal { return memoryPressure.band }
         let availableRatio = memoryTotalBytes == 0 ? 1 : Double(memoryAvailableBytes) / Double(memoryTotalBytes)
         if availableRatio >= 0.20 { return .good }
         if availableRatio >= 0.10 { return .warn }
         return .bad
+    }
+
+    var availableMemoryRatio: Double {
+        memoryTotalBytes == 0 ? 1 : Double(memoryAvailableBytes) / Double(memoryTotalBytes)
     }
 
     var cpuColorBand: MetricBand { MetricBand.from(fraction: cpuUsageFraction) }

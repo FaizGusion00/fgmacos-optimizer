@@ -46,7 +46,7 @@ struct StatusGaugesView: View {
                     value: metrics.memoryUsedFraction,
                     band: metrics.memoryPressureColorBand,
                     centerText: "\(Int((metrics.memoryUsedFraction * 100).rounded()))%",
-                    caption: "\(SystemMetrics.formatGB(metrics.memoryAvailableBytes)) free",
+                    caption: "\(SystemMetrics.formatGB(metrics.memoryAvailableBytes)) · \(metrics.memoryPressure.title)",
                     symbol: "memorychip"
                 )
                 CircularGauge(

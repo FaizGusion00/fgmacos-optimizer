@@ -2,6 +2,7 @@ import SwiftUI
 
 struct StartupSettingsView: View {
     @ObservedObject private var launch = LaunchAtLoginStore.shared
+    @ObservedObject private var features = FeatureSettingsStore.shared
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -39,6 +40,18 @@ struct StartupSettingsView: View {
             .toggleStyle(.switch)
             .controlSize(.small)
             .disabled(!launch.isEnabled && !launch.optimizeOnLaunch)
+
+            Toggle(isOn: $features.showMenuBarMeters) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Show meters in menu bar")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    Text("CPU% and free RAM next to the icon")
+                        .font(Design.Text.micro)
+                        .foregroundStyle(.primary.opacity(0.72))
+                }
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
 
             if let msg = launch.statusMessage {
                 Button {

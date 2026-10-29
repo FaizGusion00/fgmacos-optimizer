@@ -101,6 +101,7 @@ final class MetricSmoother: ObservableObject {
             batteryPercent: t.batteryPercent,
             batteryHasBattery: t.batteryHasBattery,
             batteryCharging: t.batteryCharging,
+            memoryPressure: t.memoryPressure,
             timestamp: t.timestamp
         )
     }
@@ -115,6 +116,7 @@ extension SystemMetrics {
         abs(cpuUsageFraction - other.cpuUsageFraction) < epsilon &&
         abs(diskUsedFraction - other.diskUsedFraction) < epsilon &&
         thermalLevel == other.thermalLevel &&
+        memoryPressure == other.memoryPressure &&
         abs(batteryPercent - other.batteryPercent) < 0.01 &&
         batteryCharging == other.batteryCharging
     }

@@ -20,6 +20,7 @@ final class MetricsSampler: ObservableObject {
 
     func start(interval: TimeInterval = 2.0) {
         self.interval = interval
+        MemoryPressureMonitor.shared.start()
         queue.async { _ = MachCPU.sample() }
         restartTimer()
         sampleNow(forceSlowSensors: true)
@@ -29,6 +30,7 @@ final class MetricsSampler: ObservableObject {
     func stop() {
         timer?.cancel()
         timer = nil
+        MemoryPressureMonitor.shared.stop()
     }
 
     func setInterval(_ newInterval: TimeInterval) {
@@ -74,6 +76,29 @@ final class MetricsSampler: ObservableObject {
         let disk = cachedDisk
         let battery = cachedBattery
 
+        let freeBytes: UInt64
+        let totalBytes: UInt64
+        let inactive: UInt64
+        let swap: UInt64
+        if let mem {
+            freeBytes = mem.freeBytes &+ mem.speculativeBytes
+            totalBytes = mem.totalBytes
+            inactive = mem.inactiveBytes
+            swap = mem.swapUsedBytes
+        } else {
+            freeBytes = 0
+            totalBytes = ProcessInfo.processInfo.physicalMemory
+            inactive = 0
+            swap = 0
+        }
+        let available = freeBytes &+ inactive
+        let availableRatio = totalBytes == 0 ? 1 : Double(available) / Double(totalBytes)
+        let hasSwap = swap > 512 * 1024 * 1024
+        let pressure = MemoryPressureMonitor.shared.combined(
+            availableRatio: availableRatio,
+            hasSwapPressure: hasSwap
+        )
+
         let snapshot: SystemMetrics
         if let mem {
             snapshot = SystemMetrics(
@@ -82,7 +107,7 @@ final class MetricsSampler: ObservableObject {
                 memoryActiveBytes: mem.activeBytes,
                 memoryInactiveBytes: mem.inactiveBytes,
                 memoryCompressedBytes: mem.compressedBytes,
-                memoryFreeBytes: mem.freeBytes &+ mem.speculativeBytes,
+                memoryFreeBytes: freeBytes,
                 memoryTotalBytes: mem.totalBytes,
                 swapUsedBytes: mem.swapUsedBytes,
                 cpuUsageFraction: cpu,
@@ -93,6 +118,7 @@ final class MetricsSampler: ObservableObject {
                 batteryPercent: battery.percent,
                 batteryHasBattery: battery.hasBattery,
                 batteryCharging: battery.isCharging,
+                memoryPressure: pressure,
                 timestamp: now
             )
         } else {
@@ -103,7 +129,7 @@ final class MetricsSampler: ObservableObject {
                 memoryInactiveBytes: 0,
                 memoryCompressedBytes: 0,
                 memoryFreeBytes: 0,
-                memoryTotalBytes: ProcessInfo.processInfo.physicalMemory,
+                memoryTotalBytes: totalBytes,
                 swapUsedBytes: 0,
                 cpuUsageFraction: cpu,
                 thermalLevel: thermal,
@@ -113,6 +139,7 @@ final class MetricsSampler: ObservableObject {
                 batteryPercent: battery.percent,
                 batteryHasBattery: battery.hasBattery,
                 batteryCharging: battery.isCharging,
+                memoryPressure: pressure,
                 timestamp: now
             )
         }

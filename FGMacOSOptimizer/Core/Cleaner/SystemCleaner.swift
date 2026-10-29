@@ -60,6 +60,94 @@ actor SystemCleaner {
         )
     }
 
+    func flushDNSOnly() async -> CleanResult {
+        let ok = await flushDNS()
+        return CleanResult(cacheBytesFreed: 0, dnsFlushed: ok, dockerPruned: false, dockerMessage: nil)
+    }
+
+    func cleanBucket(_ bucket: StorageBucket) async -> CleanResult {
+        switch bucket {
+        case .caches:
+            let bytes = await clearSafeCaches()
+            return CleanResult(cacheBytesFreed: bytes, dnsFlushed: false, dockerPruned: false, dockerMessage: nil)
+        case .downloads:
+            let bytes = await clearDirectoryContents(
+                path: (NSHomeDirectory() as NSString).appendingPathComponent("Downloads"),
+                maxBytes: 4 * 1024 * 1024 * 1024,
+                maxFiles: 20_000,
+                skipNewerThan: 3600
+            )
+            return CleanResult(cacheBytesFreed: bytes, dnsFlushed: false, dockerPruned: false, dockerMessage: nil)
+        case .derivedData:
+            let path = (NSHomeDirectory() as NSString).appendingPathComponent("Library/Developer/Xcode/DerivedData")
+            let bytes = await clearDirectoryContents(
+                path: path,
+                maxBytes: 20 * 1024 * 1024 * 1024,
+                maxFiles: 100_000,
+                skipNewerThan: 30
+            )
+            return CleanResult(cacheBytesFreed: bytes, dnsFlushed: false, dockerPruned: false, dockerMessage: nil)
+        case .docker:
+            let docker = await pruneDockerVolumes()
+            return CleanResult(
+                cacheBytesFreed: 0,
+                dnsFlushed: false,
+                dockerPruned: docker.pruned,
+                dockerMessage: docker.message
+            )
+        case .trash:
+            let path = (NSHomeDirectory() as NSString).appendingPathComponent(".Trash")
+            let bytes = await emptyTrash(at: path)
+            return CleanResult(cacheBytesFreed: bytes, dnsFlushed: false, dockerPruned: false, dockerMessage: nil)
+        }
+    }
+
+    private func clearDirectoryContents(
+        path: String,
+        maxBytes: UInt64,
+        maxFiles: Int,
+        skipNewerThan: TimeInterval
+    ) async -> UInt64 {
+        await withCheckedContinuation { cont in
+            DispatchQueue.global(qos: .utility).async {
+                let result = self.deleteContents(
+                    at: path,
+                    remainingBytes: maxBytes,
+                    remainingFiles: maxFiles,
+                    skipNewerThan: skipNewerThan
+                )
+                cont.resume(returning: result.bytes)
+            }
+        }
+    }
+
+    private func emptyTrash(at path: String) async -> UInt64 {
+        await withCheckedContinuation { cont in
+            DispatchQueue.global(qos: .utility).async {
+                let fm = FileManager.default
+                guard let children = try? fm.contentsOfDirectory(atPath: path) else {
+                    cont.resume(returning: 0)
+                    return
+                }
+                var freed: UInt64 = 0
+                for name in children {
+                    let full = (path as NSString).appendingPathComponent(name)
+                    let size = Self.itemSize(full)
+                    try? fm.removeItem(atPath: full)
+                    freed += size
+                }
+                cont.resume(returning: freed)
+            }
+        }
+    }
+
+    private static func itemSize(_ path: String) -> UInt64 {
+        let fm = FileManager.default
+        guard let attrs = try? fm.attributesOfItem(atPath: path) else { return 0 }
+        if let size = attrs[.size] as? UInt64 { return size }
+        return 0
+    }
+
     /// Runs `purge` to drop file-backed disk cache pages (needs admin).
     /// Note: macOS will refill cache as you use apps — high RAM use alone is normal.
     func purgeInactiveMemory() async -> CleanResult {
@@ -104,7 +192,8 @@ actor SystemCleaner {
                     let result = self.deleteContents(
                         at: path,
                         remainingBytes: self.maxBytesToDelete - freed,
-                        remainingFiles: self.maxFiles - files
+                        remainingFiles: self.maxFiles - files,
+                        skipNewerThan: 60
                     )
                     freed += result.bytes
                     files += result.files
@@ -126,7 +215,12 @@ actor SystemCleaner {
         return false
     }
 
-    private func deleteContents(at path: String, remainingBytes: UInt64, remainingFiles: Int) -> (bytes: UInt64, files: Int) {
+    private func deleteContents(
+        at path: String,
+        remainingBytes: UInt64,
+        remainingFiles: Int,
+        skipNewerThan: TimeInterval
+    ) -> (bytes: UInt64, files: Int) {
         let fm = FileManager.default
         var bytes: UInt64 = 0
         var files = 0
@@ -136,14 +230,12 @@ actor SystemCleaner {
 
         while let relative = enumerator.nextObject() as? String {
             if files >= remainingFiles || bytes >= remainingBytes { break }
-            // Never delete the root folder itself; skip very new files (< 1 hour) to reduce races
             let full = (path as NSString).appendingPathComponent(relative)
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: full, isDirectory: &isDir), !isDir.boolValue else { continue }
             if let attrs = try? fm.attributesOfItem(atPath: full) {
-                // Skip only very fresh files (60s) to avoid races — not a full hour
                 if let modified = attrs[.modificationDate] as? Date,
-                   Date().timeIntervalSince(modified) < 60 {
+                   Date().timeIntervalSince(modified) < skipNewerThan {
                     continue
                 }
                 if let size = attrs[.size] as? UInt64 {

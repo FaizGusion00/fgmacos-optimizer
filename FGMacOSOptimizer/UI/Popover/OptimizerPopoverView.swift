@@ -45,7 +45,13 @@ struct OptimizerPopoverView: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 12) {
                         sectionCard { StatusGaugesView(metrics: appState.displayMetrics) }
+                        sectionCard { FocusProfileView() }
                         sectionCard { ActionButtonsView() }
+                        sectionCard { SmartRAMView() }
+                        sectionCard { ThermalStoryView() }
+                        sectionCard { NetworkPulseView() }
+                        sectionCard { StorageMapView() }
+                        sectionCard { HallOfFameView() }
                         sectionCard { WatchdogListView() }
                         sectionCard { AuthSessionView() }
                         sectionCard { StartupSettingsView() }
@@ -159,9 +165,9 @@ struct OptimizerPopoverView: View {
                     .foregroundStyle(primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
-                Text(appState.isTurboActive ? "Turbo Mode · focused" : "System health · live")
+                Text(headerSubtitle)
                     .font(Design.Text.caption)
-                    .foregroundStyle(appState.isTurboActive ? theme.accent : secondary)
+                    .foregroundStyle(appState.isTurboActive || appState.focus.active != .off ? theme.accent : secondary)
             }
 
             Spacer(minLength: 8)
@@ -186,6 +192,13 @@ struct OptimizerPopoverView: View {
         }
     }
 
+    private var headerSubtitle: String {
+        if appState.focus.active != .off {
+            return "\(appState.focus.active.title) focus · live"
+        }
+        return appState.isTurboActive ? "Turbo Mode · focused" : "System health · live"
+    }
+
     private var footer: some View {
         HStack {
             Button {
@@ -199,7 +212,7 @@ struct OptimizerPopoverView: View {
 
             Spacer()
 
-            Text("v1.0.7")
+            Text("v1.8.0")
                 .font(Design.Text.micro)
                 .foregroundStyle(tertiary)
 
