@@ -142,34 +142,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func updateMeters(metrics: SystemMetrics, showMeters: Bool, focus: FocusProfile) {
         guard let button = statusItem?.button else { return }
         let now = Date()
-        // Throttle title thrash when popover closed.
-        if now.timeIntervalSince(lastMeterUpdate) < 2.5, !appState.isOptimizing {
-            // still refresh tooltip lightly
-        } else {
+        let force = appState.isOptimizing || lastMeterTitle.isEmpty
+        if force || now.timeIntervalSince(lastMeterUpdate) >= 2.5 {
             lastMeterUpdate = now
             if showMeters, metrics.timestamp > .distantPast {
                 let cpu = Int((metrics.cpuUsageFraction * 100).rounded())
-                let ram = SystemMetrics.formatGB(metrics.memoryAvailableBytes)
-                    .replacingOccurrences(of: " GB", with: "G")
-                let title = "\(cpu)% · \(ram)"
+                let ramGB = Double(metrics.memoryAvailableBytes) / 1_073_741_824.0
+                let ram = ramGB >= 10
+                    ? String(format: "%.0fG", ramGB)
+                    : String(format: "%.1fG", ramGB)
+                // Compact: no spaces — `15%·3.5G`
+                let title = "\(cpu)%·\(ram)"
                 if title != lastMeterTitle {
                     lastMeterTitle = title
-                    button.title = " \(title)"
+                    let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+                    button.attributedTitle = NSAttributedString(string: title, attributes: [
+                        .font: font,
+                        .foregroundColor: NSColor.labelColor,
+                        .kern: -0.3
+                    ])
                     button.imagePosition = .imageLeading
+                    button.imageHugsTitle = true
                 }
-            } else {
-                if lastMeterTitle != "" {
-                    lastMeterTitle = ""
-                    button.title = ""
-                    button.imagePosition = .imageOnly
-                }
+            } else if lastMeterTitle != "" {
+                lastMeterTitle = ""
+                button.attributedTitle = NSAttributedString(string: "")
+                button.title = ""
+                button.imagePosition = .imageOnly
             }
         }
 
-        var tip = "FGMacOS Optimizer"
+        var tip = "FG"
         if focus != .off { tip += " · \(focus.title)" }
-        tip += " · CPU \(Int(metrics.cpuUsageFraction * 100))% · RAM \(SystemMetrics.formatGB(metrics.memoryAvailableBytes)) free"
-        tip += " · \(metrics.thermalLevel.title) · Pressure \(metrics.memoryPressure.title)"
+        tip += " · CPU \(Int(metrics.cpuUsageFraction * 100))% · \(SystemMetrics.formatGB(metrics.memoryAvailableBytes)) free"
+        tip += " · \(metrics.thermalLevel.title)"
         button.toolTip = tip
     }
 

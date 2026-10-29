@@ -58,6 +58,35 @@ expect(!canKill(pid: 1), "pid 1 blocked")
 expect(!canKill(pid: ProcessInfo.processInfo.processIdentifier), "self pid blocked")
 expect(canKill(pid: 99999), "normal pid allowed by pid rule")
 
+// Cleaner path blocklist (mirrors CleanSafety)
+func cleanerBlocked(_ path: String) -> Bool {
+    if path.hasPrefix("/System/") || path.hasPrefix("/usr/") { return true }
+    if path.localizedCaseInsensitiveContains("Photos Library.photoslibrary") { return true }
+    let parts = path.split(separator: "/").suffix(3).map(String.init)
+    for part in parts {
+        for token in ["Keychain", "Cookies", "Passwords", "Credentials", "CloudKit"] where part.localizedCaseInsensitiveContains(token) {
+            return true
+        }
+    }
+    return false
+}
+func cleanerSafeToRemove(_ path: String) -> Bool {
+    if path.isEmpty || path == "/" { return false }
+    let home = NSHomeDirectory()
+    if path == home { return false }
+    let trash = (home as NSString).appendingPathComponent(".Trash")
+    if path == trash { return false }
+    if cleanerBlocked(path) { return false }
+    return true
+}
+expect(!cleanerSafeToRemove("/"), "root blocked")
+expect(!cleanerSafeToRemove(NSHomeDirectory()), "home blocked")
+expect(!cleanerSafeToRemove((NSHomeDirectory() as NSString).appendingPathComponent(".Trash")), "Trash root blocked")
+expect(cleanerSafeToRemove((NSHomeDirectory() as NSString).appendingPathComponent(".Trash/old.zip")), "Trash child allowed")
+expect(!cleanerSafeToRemove("/Users/x/Library/Cookies/Cookies.binarycookies"), "Cookies blocked")
+expect(!cleanerSafeToRemove("/System/Library/CoreServices"), "System blocked")
+expect(cleanerSafeToRemove((NSHomeDirectory() as NSString).appendingPathComponent("Library/Caches/com.google.Chrome")), "Chrome cache path allowed by path guard")
+
 if failed > 0 {
     fputs("\n\(failed) safety check(s) failed\n", stderr)
     exit(1)

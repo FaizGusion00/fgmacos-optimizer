@@ -43,7 +43,7 @@ struct OptimizerPopoverView: View {
                     .padding(.bottom, 10)
 
                 ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 12) {
+                    VStack(spacing: 8) {
                         sectionCard { StatusGaugesView(metrics: appState.displayMetrics) }
                         sectionCard { FocusProfileView() }
                         sectionCard { ActionButtonsView() }
@@ -56,8 +56,8 @@ struct OptimizerPopoverView: View {
                         sectionCard { AuthSessionView() }
                         sectionCard { StartupSettingsView() }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 6)
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 4)
                 }
 
                 footer
@@ -129,7 +129,8 @@ struct OptimizerPopoverView: View {
 
     private func sectionCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
-            .padding(14)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: Design.radius, style: .continuous)
@@ -212,7 +213,7 @@ struct OptimizerPopoverView: View {
 
             Spacer()
 
-            Text("v1.8.0")
+            Text("v1.9.0")
                 .font(Design.Text.micro)
                 .foregroundStyle(tertiary)
 

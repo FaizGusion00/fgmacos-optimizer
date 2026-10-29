@@ -18,7 +18,8 @@ enum StatusBarSymbol {
     ]
 
     static func image(turboActive: Bool) -> NSImage {
-        let config = NSImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
+        // Compact menu-bar glyph — slightly smaller than default status icons.
+        let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
         let names = turboActive ? turboCandidates : idleCandidates
         for name in names {
             guard let base = NSImage(systemSymbolName: name, accessibilityDescription: "FGMacOS Optimizer") else {

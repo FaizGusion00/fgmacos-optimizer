@@ -4,28 +4,12 @@ struct AuthSessionView: View {
     @ObservedObject private var auth = SessionAuth.shared
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Security")
-                .font(Design.Text.section)
-                .foregroundStyle(.primary.opacity(0.75))
-
-            HStack(spacing: 10) {
-                Image(systemName: auth.isSessionValid ? "lock.open.fill" : "lock.fill")
-                    .foregroundStyle(auth.isSessionValid ? TurboTheme.bandColor(.good) : .secondary)
-                    .font(.system(size: 16, weight: .semibold))
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(titleLine)
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    TimelineView(.periodic(from: .now, by: 1)) { _ in
-                        Text(statusLine)
-                            .font(Design.Text.micro)
-                            .foregroundStyle(.primary.opacity(0.72))
-                    }
-                }
-
-                Spacer()
-
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text("Security")
+                    .font(Design.Text.section)
+                    .foregroundStyle(.primary.opacity(0.75))
+                Spacer(minLength: 0)
                 if auth.isBusy {
                     ProgressView().controlSize(.mini)
                 } else if auth.isSessionValid {
@@ -47,18 +31,40 @@ struct AuthSessionView: View {
                 }
             }
 
-            Picker("Remember for", selection: $auth.sessionMinutes) {
-                Text("5 min").tag(5)
-                Text("10 min").tag(10)
-                Text("15 min").tag(15)
-                Text("30 min").tag(30)
+            HStack(spacing: 6) {
+                Image(systemName: auth.isSessionValid ? "lock.open.fill" : "lock.fill")
+                    .foregroundStyle(auth.isSessionValid ? TurboTheme.bandColor(.good) : .secondary)
+                    .font(.system(size: 12, weight: .semibold))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(titleLine)
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    // countdownTick forces redraw every second while unlocked.
+                    Text(statusLine)
+                        .font(Design.Text.micro)
+                        .foregroundStyle(.primary.opacity(0.7))
+                        .monospacedDigit()
+                        .id(auth.countdownTick)
+                }
+                Spacer(minLength: 0)
             }
-            .pickerStyle(.segmented)
-            .controlSize(.small)
+
+            HStack(spacing: 6) {
+                Text("Remember")
+                    .font(Design.Text.micro)
+                    .foregroundStyle(.primary.opacity(0.7))
+                Picker("", selection: $auth.sessionMinutes) {
+                    ForEach(SessionAuth.allowedMinutes, id: \.self) { m in
+                        Text("\(m)m").tag(m)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .controlSize(.mini)
+                .labelsHidden()
+            }
 
             Text(helpLine)
-                .font(Design.Text.micro)
-                .foregroundStyle(.primary.opacity(0.72))
+                .font(.system(size: 9, weight: .medium, design: .rounded))
+                .foregroundStyle(.primary.opacity(0.58))
                 .fixedSize(horizontal: false, vertical: true)
 
             if let err = auth.lastError, !auth.isSessionValid {
@@ -71,30 +77,28 @@ struct AuthSessionView: View {
         .onAppear {
             auth.refreshBiometryLabel()
             auth.refreshTouchIDForSudoStatus()
+            _ = auth.remainingSeconds
         }
     }
 
     private var titleLine: String {
-        if auth.isSessionValid {
-            return auth.privilegeVerified ? "Admin unlocked · ready" : "Admin unlocked"
-        }
-        return "Admin locked"
+        auth.isSessionValid ? "Admin unlocked" : "Admin locked"
     }
 
     private var statusLine: String {
         if auth.isSessionValid {
-            let m = auth.remainingSeconds / 60
-            let s = auth.remainingSeconds % 60
-            return String(format: "No more prompts · %d:%02d left", m, s)
+            let total = auth.remainingSeconds
+            let m = total / 60
+            let s = total % 60
+            return String(format: "%d:%02d left · no more prompts", m, s)
         }
-        return "Tap Unlock — one admin prompt only"
+        return "One admin prompt for \(auth.sessionMinutes) min"
     }
 
     private var helpLine: String {
-        if auth.isSessionValid, let detail = auth.lastProbeDetail {
-            return "\(detail). Free RAM / Turbo reuse this window."
+        if auth.isSessionValid {
+            return "Free RAM / Turbo reuse this window until timer ends."
         }
-        // Honest: SecurityAgent log on this Mac says "TouchID is not enabled" for admin elevation.
-        return "One admin unlock for the period above. macOS often uses password for root tools (Touch ID is app-login only)."
+        return "Password is normal for admin tools. Changing \(auth.sessionMinutes)m resizes an open session from unlock time."
     }
 }

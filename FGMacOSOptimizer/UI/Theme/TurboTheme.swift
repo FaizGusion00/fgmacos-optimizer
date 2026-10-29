@@ -1,10 +1,10 @@
 import SwiftUI
 
 enum Design {
-    static let popoverWidth: CGFloat = 360
-    static let popoverHeight: CGFloat = 820
-    static let radius: CGFloat = 16
-    static let radiusSm: CGFloat = 12
+    static let popoverWidth: CGFloat = 340
+    static let popoverHeight: CGFloat = 760
+    static let radius: CGFloat = 14
+    static let radiusSm: CGFloat = 10
 
     /// High-contrast text for frosted popovers (Light + Dark).
     enum Text {

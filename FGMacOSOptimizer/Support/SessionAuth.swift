@@ -21,17 +21,28 @@ enum AdminUnlockMethod: String {
 final class SessionAuth: ObservableObject {
     static let shared = SessionAuth()
 
+    /// Only these durations are valid — picker + persistence always clamp here.
+    static let allowedMinutes: [Int] = [5, 10, 15, 30]
+
     @Published var sessionMinutes: Int {
         didSet {
+            let clamped = Self.clampMinutes(sessionMinutes)
+            if clamped != sessionMinutes {
+                sessionMinutes = clamped
+                return
+            }
             UserDefaults.standard.set(sessionMinutes, forKey: Keys.sessionMinutes)
-            if isUnlocked, let unlockedAt {
-                expiresAt = unlockedAt.addingTimeInterval(TimeInterval(sessionMinutes * 60))
+            // Changing Remember-for while unlocked resizes the window from unlock time.
+            if isUnlocked {
+                applyExpiryFromUnlockTime(reason: "duration-changed")
             }
         }
     }
 
     @Published private(set) var isUnlocked = false
     @Published private(set) var expiresAt: Date?
+    /// Forces SwiftUI countdown refresh every second while unlocked.
+    @Published private(set) var countdownTick: Int = 0
     @Published private(set) var biometryLabel: String = "Touch ID"
     @Published private(set) var unlockMethod: AdminUnlockMethod = .unknown
     @Published private(set) var privilegeVerified = false
@@ -43,6 +54,8 @@ final class SessionAuth: ObservableObject {
     private var unlockedAt: Date?
     private var authRef: AuthorizationRef?
     private var unlockTask: Task<Bool, Never>?
+    private var expiryTimer: Timer?
+    private var tickTimer: Timer?
     private let log = Logger(subsystem: "com.fgmacos.optimizer", category: "auth")
 
     private enum Keys {
@@ -53,14 +66,21 @@ final class SessionAuth: ObservableObject {
 
     private init() {
         let stored = UserDefaults.standard.object(forKey: Keys.sessionMinutes) as? Int
-        sessionMinutes = stored ?? 10
+        sessionMinutes = Self.clampMinutes(stored ?? 10)
         refreshBiometryLabel()
         refreshTouchIDForSudoStatus()
     }
 
+    static func clampMinutes(_ value: Int) -> Int {
+        if allowedMinutes.contains(value) { return value }
+        // Nearest allowed (e.g. corrupted defaults).
+        return allowedMinutes.min(by: { abs($0 - value) < abs($1 - value) }) ?? 10
+    }
+
     var remainingSeconds: Int {
-        guard let expiresAt else { return 0 }
-        return max(0, Int(expiresAt.timeIntervalSinceNow))
+        pruneIfExpired()
+        guard let expiresAt, isUnlocked else { return 0 }
+        return max(0, Int(ceil(expiresAt.timeIntervalSinceNow)))
     }
 
     var isSessionValid: Bool {
@@ -157,9 +177,9 @@ final class SessionAuth: ObservableObject {
         privilegeVerified = true
         lastProbeDetail = probe.ok ? "admin rights cached" : "admin rights cached (soft probe)"
         unlockedAt = Date()
-        expiresAt = Date().addingTimeInterval(TimeInterval(sessionMinutes * 60))
         isUnlocked = true
-        AuthFileLog.write("UNLOCK OK method=\(unlockMethod.rawValue) for \(sessionMinutes)m — one prompt")
+        applyExpiryFromUnlockTime(reason: "unlock")
+        AuthFileLog.write("UNLOCK OK method=\(unlockMethod.rawValue) for \(sessionMinutes)m expires=\(expiresAt?.description ?? "?") — one prompt")
         log.info("Session unlocked for \(self.sessionMinutes)m (single prompt)")
         return true
     }
@@ -200,6 +220,7 @@ final class SessionAuth: ObservableObject {
     }
 
     func lock() {
+        stopSessionTimers()
         if let authRef {
             AuthorizationFree(authRef, [.destroyRights])
         }
@@ -208,6 +229,7 @@ final class SessionAuth: ObservableObject {
         privilegeVerified = false
         expiresAt = nil
         unlockedAt = nil
+        countdownTick &+= 1
         AuthFileLog.write("session locked")
     }
 
@@ -229,9 +251,63 @@ final class SessionAuth: ObservableObject {
         return (ok: result.0, output: result.1)
     }
 
+    /// Sets `expiresAt = unlockedAt + sessionMinutes`, locks if already past, schedules timers.
+    private func applyExpiryFromUnlockTime(reason: String) {
+        guard isUnlocked, let unlockedAt else { return }
+        let minutes = Self.clampMinutes(sessionMinutes)
+        let newExpiry = unlockedAt.addingTimeInterval(TimeInterval(minutes * 60))
+        expiresAt = newExpiry
+        AuthFileLog.write("session expiry \(reason): \(minutes)m → \(newExpiry)")
+        if newExpiry <= Date() {
+            AuthFileLog.write("session already past new expiry — locking")
+            lock()
+            return
+        }
+        scheduleSessionTimers()
+        countdownTick &+= 1
+    }
+
+    private func scheduleSessionTimers() {
+        stopSessionTimers()
+        guard let expiresAt, isUnlocked else { return }
+        let remaining = expiresAt.timeIntervalSinceNow
+        guard remaining > 0 else {
+            lock()
+            return
+        }
+
+        // Exact fire at expiry (not only on next admin action).
+        let expiry = Timer(timeInterval: remaining, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                AuthFileLog.write("session expiry timer fired")
+                self?.pruneIfExpired()
+            }
+        }
+        expiryTimer = expiry
+        RunLoop.main.add(expiry, forMode: .common)
+
+        // 1 Hz UI tick + safety prune.
+        let tick = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.countdownTick &+= 1
+                self?.pruneIfExpired()
+            }
+        }
+        tickTimer = tick
+        RunLoop.main.add(tick, forMode: .common)
+    }
+
+    private func stopSessionTimers() {
+        expiryTimer?.invalidate()
+        expiryTimer = nil
+        tickTimer?.invalidate()
+        tickTimer = nil
+    }
+
     private func pruneIfExpired() {
-        if let expiresAt, expiresAt <= Date() {
-            AuthFileLog.write("session expired")
+        guard isUnlocked, let expiresAt else { return }
+        if expiresAt <= Date() {
+            AuthFileLog.write("session expired at \(expiresAt)")
             lock()
         }
     }

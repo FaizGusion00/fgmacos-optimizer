@@ -39,8 +39,8 @@ struct ActionButtonsView: View {
                 ActionChip(title: "Free RAM", symbol: "arrow.3.trianglepath", tint: Color(red: 0.35, green: 0.55, blue: 1.0)) {
                     appState.freeRAM()
                 }
-                ActionChip(title: "Clean", symbol: "trash.fill", tint: Color.orange) {
-                    appState.clearCache()
+                ActionChip(title: "Cleaner", symbol: "sparkles", tint: Color.orange) {
+                    CleanerWindowController.show()
                 }
                 ActionChip(title: "Kill Hogs", symbol: "xmark.octagon.fill", tint: Color.red) {
                     appState.killHogs()
