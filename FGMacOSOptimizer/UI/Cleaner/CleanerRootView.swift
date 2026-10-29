@@ -4,24 +4,107 @@ struct CleanerRootView: View {
     @EnvironmentObject private var store: CleanerStore
     @EnvironmentObject private var appearance: AppearanceStore
     @Environment(\.colorScheme) private var colorScheme
+    @State private var appeared = false
 
     var body: some View {
         HStack(spacing: 0) {
             sidebar
                 .frame(width: 196)
+                .opacity(appeared ? 1 : 0)
+                .offset(x: appeared ? 0 : -12)
             Rectangle()
                 .fill(Color.primary.opacity(0.08))
                 .frame(width: 1)
             VStack(spacing: 0) {
+                if store.showGuideBanner {
+                    guideBanner
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
                 header
+                if store.tab == .smartCare {
+                    smartCareSteps
+                        .transition(.opacity)
+                }
                 detailBody
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .id(store.tab)
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .trailing)),
+                        removal: .opacity
+                    ))
                 footerBar
             }
             .background(detailBackground)
+            .opacity(appeared ? 1 : 0)
+            .offset(x: appeared ? 0 : 10)
         }
-        .frame(minWidth: 780, minHeight: 540)
+        .frame(minWidth: 800, minHeight: 560)
         .background(Color(nsColor: .windowBackgroundColor))
+        .animation(.spring(response: 0.38, dampingFraction: 0.86), value: store.tab)
+        .animation(.spring(response: 0.4, dampingFraction: 0.88), value: store.showGuideBanner)
+        .onAppear {
+            withAnimation(.spring(response: 0.48, dampingFraction: 0.86)) {
+                appeared = true
+            }
+        }
+    }
+
+    private var guideBanner: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "hand.wave.fill")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(CleanerTheme.accent)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("You’re in Cleaner — here’s the simple flow")
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                Text("1) Stay on Smart Care  ·  2) Wait for Scan  ·  3) Review ticks  ·  4) Press Clean selected. Other tools are in the left menu.")
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            Button("Got it") { store.dismissGuide() }
+                .buttonStyle(.borderedProminent)
+                .tint(CleanerTheme.accent)
+                .controlSize(.small)
+        }
+        .padding(12)
+        .background(CleanerTheme.accent.opacity(0.12))
+    }
+
+    private var smartCareSteps: some View {
+        HStack(spacing: 8) {
+            stepPill(1, "Scan", active: store.smartCareStep == 1 || store.items.isEmpty)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.secondary)
+            stepPill(2, "Review", active: store.smartCareStep >= 2 && !store.items.isEmpty)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.secondary)
+            stepPill(3, "Clean", active: store.isCleaning || (store.lastResult != nil))
+            Spacer()
+        }
+        .padding(.horizontal, 18)
+        .padding(.bottom, 8)
+    }
+
+    private func stepPill(_ n: Int, _ title: String, active: Bool) -> some View {
+        HStack(spacing: 6) {
+            Text("\(n)")
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .foregroundStyle(active ? Color.white : .secondary)
+                .frame(width: 18, height: 18)
+                .background(Circle().fill(active ? CleanerTheme.accent : Color.primary.opacity(0.08)))
+            Text(title)
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundStyle(active ? CleanerTheme.accentDeep : .secondary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            Capsule().fill(active ? CleanerTheme.accent.opacity(0.12) : Color.clear)
+        )
     }
 
     private var detailBackground: some View {
@@ -61,7 +144,24 @@ struct CleanerRootView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 4) {
                     ForEach(CleanCategory.allCases) { cat in
+                        if cat == .schedule {
+                            Text("MANAGE")
+                                .font(.system(size: 9, weight: .bold, design: .rounded))
+                                .foregroundStyle(.secondary)
+                                .padding(.leading, 12)
+                                .padding(.top, 10)
+                                .padding(.bottom, 4)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                         sidebarRow(cat)
+                        if cat == .smartCare {
+                            Text("START HERE")
+                                .font(.system(size: 9, weight: .bold, design: .rounded))
+                                .foregroundStyle(CleanerTheme.accent)
+                                .padding(.leading, 12)
+                                .padding(.bottom, 4)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
                 }
                 .padding(.horizontal, 10)
@@ -78,7 +178,9 @@ struct CleanerRootView: View {
     private func sidebarRow(_ cat: CleanCategory) -> some View {
         let active = store.tab == cat
         return Button {
-            store.selectTab(cat)
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.84)) {
+                store.selectTab(cat)
+            }
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: cat.symbol)
@@ -89,16 +191,42 @@ struct CleanerRootView: View {
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
                             .fill(active ? Color.white.opacity(0.22) : CleanerTheme.accent.opacity(0.12))
                     )
-                Text(cat.title)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(active ? Color.white : .primary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(cat.title)
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(active ? Color.white : .primary)
+                    Text(sidebarHint(cat))
+                        .font(.system(size: 9, weight: .medium, design: .rounded))
+                        .foregroundStyle(active ? Color.white.opacity(0.85) : .secondary)
+                        .lineLimit(1)
+                }
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 9)
             .background(sidebarRowBackground(active: active))
+            .accessibilityLabel("\(cat.title). \(sidebarHint(cat))")
         }
         .buttonStyle(.plain)
+        .animation(.spring(response: 0.3, dampingFraction: 0.82), value: active)
+    }
+
+    private func sidebarHint(_ cat: CleanCategory) -> String {
+        switch cat {
+        case .smartCare: return "Recommended · one tap"
+        case .uninstaller: return "Remove apps + leftovers"
+        case .largeOld: return "Big / old files"
+        case .duplicates: return "Same files twice"
+        case .loginItems: return "Startup items"
+        case .snapshots: return "Hidden TM space"
+        case .dev: return "Xcode / npm / brew"
+        case .mailMessages: return "Big attachments"
+        case .spaceLens: return "What’s using disk"
+        case .browser: return "Browser caches"
+        case .schedule: return "Auto scan · notify"
+        case .protection: return "Never clean these"
+        case .history: return "Log + Undo"
+        }
     }
 
     @ViewBuilder
@@ -141,19 +269,28 @@ struct CleanerRootView: View {
                 )
             }
 
-            Button {
-                Task { await store.refresh() }
-            } label: {
-                Label(store.isScanning ? "Scanning…" : "Scan", systemImage: "arrow.clockwise")
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+            if showsScanButton {
+                Button {
+                    Task { await store.refresh() }
+                } label: {
+                    Label(store.isScanning ? "Scanning…" : "Scan", systemImage: "arrow.clockwise")
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.bordered)
+                .disabled(store.isScanning || store.isCleaning)
             }
-            .buttonStyle(.bordered)
-            .disabled(store.isScanning || store.isCleaning)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
+    }
+
+    private var showsScanButton: Bool {
+        switch store.tab {
+        case .schedule, .protection, .history: return false
+        default: return true
+        }
     }
 
     private var headerBlurb: String {
@@ -168,6 +305,9 @@ struct CleanerRootView: View {
         case .mailMessages: return "Large stale attachments → Trash"
         case .spaceLens: return "Where disk space went"
         case .browser: return "Caches only by default · never cookies"
+        case .schedule: return "Daily/weekly Smart Care scan · notify only, you confirm clean"
+        case .protection: return "Whitelist folders and apps so they never get cleaned"
+        case .history: return "What was removed · Undo from Trash when still available"
         }
     }
 
@@ -182,6 +322,12 @@ struct CleanerRootView: View {
             SpaceLensTabView()
         case .uninstaller:
             UninstallerTabView()
+        case .schedule:
+            ScheduleTabView()
+        case .protection:
+            ProtectionTabView()
+        case .history:
+            HistoryTabView()
         case .duplicates:
             VStack(alignment: .leading, spacing: 0) {
                 tipBanner(
@@ -245,6 +391,14 @@ struct CleanerRootView: View {
     }
 
     private var footerBar: some View {
+        Group {
+            if showsScanButton {
+                footerCleanBar
+            }
+        }
+    }
+
+    private var footerCleanBar: some View {
         HStack(spacing: 10) {
             if !store.items.isEmpty {
                 Button("Select safe") { store.selectAllSafe() }
@@ -273,7 +427,7 @@ struct CleanerRootView: View {
                     if store.isCleaning {
                         ProgressView().controlSize(.mini).tint(.white)
                     }
-                    Text(store.isCleaning ? "Cleaning…" : "Clean selected")
+                    Text(cleanButtonTitle)
                         .font(.system(size: 12, weight: .bold, design: .rounded))
                 }
                 .foregroundStyle(.white)
@@ -288,10 +442,19 @@ struct CleanerRootView: View {
             }
             .buttonStyle(.plain)
             .disabled(store.isCleaning || !store.items.contains(where: \.selected))
+            .accessibilityLabel("Clean selected items")
+            .help("Removes only the items you checked")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(.bar)
+    }
+
+    private var cleanButtonTitle: String {
+        if store.isCleaning { return "Cleaning…" }
+        let n = store.items.filter(\.selected).count
+        if n == 0 { return "Select items to clean" }
+        return "Clean \(n) selected · \(CleanSafety.formatBytes(store.selectedBytes))"
     }
 }
 
@@ -300,11 +463,29 @@ struct CleanItemsListView: View {
 
     var body: some View {
         if store.items.isEmpty {
-            CleanerEmptyState(
-                symbol: store.isScanning ? "hourglass" : "tray",
-                title: store.isScanning ? "Scanning…" : "Nothing to clean here",
-                detail: store.status ?? "Tap Scan — or pick another category."
-            )
+            VStack(spacing: 14) {
+                CleanerEmptyState(
+                    symbol: store.isScanning ? "hourglass" : "sparkles",
+                    title: store.isScanning ? "Scanning your Mac…" : (store.tab == .smartCare ? "Ready to clean" : "Nothing here yet"),
+                    detail: store.status ?? (store.tab == .smartCare
+                        ? "Press Scan — we’ll list safe junk you can remove."
+                        : "Tap Scan in the header, or choose another tool on the left.")
+                )
+                if !store.isScanning {
+                    Button {
+                        Task { await store.refresh() }
+                    } label: {
+                        Text(store.tab == .smartCare ? "Scan my Mac" : "Scan this category")
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 22)
+                            .padding(.vertical, 10)
+                            .background(Capsule().fill(CleanerTheme.heroGradient))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.bottom, 40)
+                }
+            }
         } else {
             ScrollView {
                 LazyVStack(spacing: 8) {

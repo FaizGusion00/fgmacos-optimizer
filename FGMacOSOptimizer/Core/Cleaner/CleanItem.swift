@@ -11,6 +11,9 @@ enum CleanCategory: String, CaseIterable, Identifiable, Sendable {
     case mailMessages
     case spaceLens
     case browser
+    case schedule
+    case protection
+    case history
 
     var id: String { rawValue }
 
@@ -26,6 +29,9 @@ enum CleanCategory: String, CaseIterable, Identifiable, Sendable {
         case .mailMessages: return "Mail & Messages"
         case .spaceLens: return "Space Lens"
         case .browser: return "Browsers"
+        case .schedule: return "Schedule"
+        case .protection: return "Protection"
+        case .history: return "History"
         }
     }
 
@@ -41,6 +47,9 @@ enum CleanCategory: String, CaseIterable, Identifiable, Sendable {
         case .mailMessages: return "envelope"
         case .spaceLens: return "chart.pie"
         case .browser: return "globe"
+        case .schedule: return "calendar"
+        case .protection: return "hand.raised.fill"
+        case .history: return "arrow.uturn.backward.circle"
         }
     }
 }
@@ -118,29 +127,55 @@ struct CleanRunResult: Equatable, Sendable {
     }
 }
 
+struct CleanApplyOutcome: Sendable {
+    var result = CleanRunResult()
+    var moves: [CleanupMove] = []
+}
+
 enum CleanExecutor {
-    static func apply(_ items: [CleanItem]) -> CleanRunResult {
-        var result = CleanRunResult()
+    static func apply(_ items: [CleanItem]) -> CleanApplyOutcome {
+        var outcome = CleanApplyOutcome()
         for item in items where item.selected {
             for path in item.paths {
                 guard CleanSafety.assertSafeToRemove(path: path) else {
-                    result.errors.append("Blocked: \(path)")
+                    outcome.result.errors.append("Blocked: \(path)")
                     continue
                 }
                 let url = URL(fileURLWithPath: path)
-                let outcome: (ok: Bool, bytes: UInt64)
                 switch item.disposal {
-                case .trash: outcome = CleanSafety.trash(url)
-                case .delete: outcome = CleanSafety.delete(url)
-                }
-                if outcome.ok {
-                    result.freedBytes += outcome.bytes
-                    result.itemsProcessed += 1
-                } else {
-                    result.errors.append("Failed: \(item.title)")
+                case .trash:
+                    let trash = CleanSafety.trash(url)
+                    if trash.ok {
+                        outcome.result.freedBytes += trash.bytes
+                        outcome.result.itemsProcessed += 1
+                        outcome.moves.append(CleanupMove(
+                            title: item.title,
+                            originalPath: path,
+                            trashPath: trash.trashURL?.path,
+                            bytes: trash.bytes,
+                            disposal: .trash
+                        ))
+                    } else {
+                        outcome.result.errors.append("Failed: \(item.title)")
+                    }
+                case .delete:
+                    let deleted = CleanSafety.delete(url)
+                    if deleted.ok {
+                        outcome.result.freedBytes += deleted.bytes
+                        outcome.result.itemsProcessed += 1
+                        outcome.moves.append(CleanupMove(
+                            title: item.title,
+                            originalPath: path,
+                            trashPath: nil,
+                            bytes: deleted.bytes,
+                            disposal: .delete
+                        ))
+                    } else {
+                        outcome.result.errors.append("Failed: \(item.title)")
+                    }
                 }
             }
         }
-        return result
+        return outcome
     }
 }

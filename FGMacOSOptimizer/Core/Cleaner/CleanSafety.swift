@@ -32,12 +32,14 @@ enum CleanSafety {
         // Never delete the Trash folder itself; children OK for Empty Trash.
         if path == trashRoot || path.hasSuffix("/.Trash") { return false }
         if isBlocked(path: path) { return false }
+        if ProtectionGuard.isPathProtected(path) { return false }
         let homeLib = (NSHomeDirectory() as NSString).appendingPathComponent("Library")
         if path == homeLib || path == "/Applications" { return false }
         return true
     }
 
     static func isProtectedApp(bundleID: String?, name: String) -> Bool {
+        if ProtectionGuard.isBundleProtected(bundleID) { return true }
         if let bundleID {
             if bundleID == "com.fgmacos.optimizer" { return true }
             if bundleID.hasPrefix("com.apple.") { return true }
@@ -47,15 +49,15 @@ enum CleanSafety {
     }
 
     @discardableResult
-    static func trash(_ url: URL) -> (ok: Bool, bytes: UInt64) {
-        guard assertSafeToRemove(path: url.path) else { return (false, 0) }
+    static func trash(_ url: URL) -> (ok: Bool, bytes: UInt64, trashURL: URL?) {
+        guard assertSafeToRemove(path: url.path) else { return (false, 0, nil) }
         let size = directoryOrFileSize(url)
         do {
             var resulting: NSURL?
             try FileManager.default.trashItem(at: url, resultingItemURL: &resulting)
-            return (true, size)
+            return (true, size, resulting as URL?)
         } catch {
-            return (false, 0)
+            return (false, 0, nil)
         }
     }
 

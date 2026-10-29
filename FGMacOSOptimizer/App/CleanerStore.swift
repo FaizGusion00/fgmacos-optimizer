@@ -19,6 +19,17 @@ final class CleanerStore: ObservableObject {
     @Published var spaceNodes: [SpaceNode] = []
     @Published var includeBrowserHistory = false
     @Published var duplicatesEnabled = false
+    /// First-open coach mark inside Cleaner.
+    @Published var showGuideBanner = false
+
+    /// Smart Care wizard step for status copy.
+    var smartCareStep: Int {
+        if isScanning { return 1 }
+        if items.isEmpty { return 1 }
+        if isCleaning { return 3 }
+        if items.contains(where: \.selected) { return 2 }
+        return 2
+    }
 
     private let smart = SmartCareEngine()
     private let uninstaller = AppUninstaller()
@@ -51,23 +62,24 @@ final class CleanerStore: ObservableObject {
 
         switch tab {
         case .smartCare:
-            items = await smart.scan()
+            items = ProtectionGuard.filterItems(await smart.scan())
         case .uninstaller:
-            installedApps = await uninstaller.listApps()
+            let apps = await uninstaller.listApps()
+            installedApps = apps.filter { !ProtectionGuard.isBundleProtected($0.bundleID) }
             if let selectedApp {
-                items = await uninstaller.leftovers(for: selectedApp)
+                items = ProtectionGuard.filterItems(await uninstaller.leftovers(for: selectedApp))
             } else {
                 items = []
             }
         case .largeOld:
-            items = await largeOld.scan()
+            items = ProtectionGuard.filterItems(await largeOld.scan())
         case .duplicates:
             guard duplicatesEnabled else {
                 items = []
                 status = "Enable scan to find duplicates in Downloads (slow)."
                 return
             }
-            items = await duplicates.scan()
+            items = ProtectionGuard.filterItems(await duplicates.scan())
         case .loginItems:
             startupItems = await login.list()
             items = []
@@ -75,9 +87,9 @@ final class CleanerStore: ObservableObject {
             snapshots = await snaps.list()
             items = []
         case .dev:
-            items = await dev.scan()
+            items = ProtectionGuard.filterItems(await dev.scan())
         case .mailMessages:
-            items = await mail.scan()
+            items = ProtectionGuard.filterItems(await mail.scan())
             if items.isEmpty {
                 status = "No large stale attachments found (or Full Disk Access needed)."
             }
@@ -85,7 +97,9 @@ final class CleanerStore: ObservableObject {
             spaceNodes = await lens.scanHome()
             items = []
         case .browser:
-            items = await browser.scan(includeHistory: includeBrowserHistory)
+            items = ProtectionGuard.filterItems(await browser.scan(includeHistory: includeBrowserHistory))
+        case .schedule, .protection, .history:
+            items = []
         }
     }
 
@@ -127,9 +141,16 @@ final class CleanerStore: ObservableObject {
         }
 
         let applied = CleanExecutor.apply(working)
-        result.freedBytes += applied.freedBytes
-        result.itemsProcessed += applied.itemsProcessed
-        result.errors.append(contentsOf: applied.errors)
+        result.freedBytes += applied.result.freedBytes
+        result.itemsProcessed += applied.result.itemsProcessed
+        result.errors.append(contentsOf: applied.result.errors)
+
+        CleanupHistoryStore.shared.record(
+            title: "Cleaner · \(tab.title)",
+            category: tab,
+            result: result,
+            moves: applied.moves
+        )
 
         lastResult = result
         status = result.summary
@@ -172,5 +193,10 @@ final class CleanerStore: ObservableObject {
 
     func reveal(_ path: String) {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    }
+
+    func dismissGuide() {
+        showGuideBanner = false
+        PermissionManager.shared.markCleanerIntroShown()
     }
 }

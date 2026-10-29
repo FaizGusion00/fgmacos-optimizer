@@ -8,6 +8,7 @@ enum PermissionsWindowController {
 
     static func show() {
         if let window, window.isVisible {
+            PermissionManager.shared.refresh()
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
@@ -21,17 +22,23 @@ enum PermissionsWindowController {
 
         let hosting = NSHostingController(rootView: root)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 440, height: 520),
-            styleMask: [.titled, .closable, .fullSizeContentView],
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 680),
+            styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
-        window.title = "Permissions — FGMacOS Optimizer"
+        window.title = "Welcome — FGMacOS Optimizer"
+        window.minSize = NSSize(width: 480, height: 560)
         window.contentViewController = hosting
         window.center()
         window.isReleasedWhenClosed = false
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         Self.window = window
+    }
+
+    static func close() {
+        window?.orderOut(nil)
+        window = nil
     }
 }

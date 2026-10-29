@@ -2,26 +2,67 @@ import SwiftUI
 
 struct ActionButtonsView: View {
     @EnvironmentObject private var appState: AppState
+    @State private var heroHover = false
+    @State private var heroPress = false
+    @State private var appeared = false
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 10) {
+            Button {
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
+                    heroPress = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                    heroPress = false
+                    CleanerWindowController.show(showIntroIfNeeded: true)
+                }
+            } label: {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 16, weight: .bold))
+                            .symbolEffectBounce(value: appeared)
+                        Text("Open Cleaner")
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                        Spacer()
+                        Text("Suite")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(Capsule().fill(Color.white.opacity(0.22)))
+                    }
+                    Text("Scan · review · free space. Uninstall apps, large files, Dev caches, and more.")
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .opacity(0.95)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .foregroundStyle(.white)
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(CleanerTheme.heroGradient)
+                        .shadow(color: CleanerTheme.accent.opacity(heroHover ? 0.45 : 0.28), radius: heroHover ? 16 : 10, y: heroHover ? 8 : 5)
+                )
+                .scaleEffect(heroPress ? 0.97 : (heroHover ? 1.015 : 1.0))
+                .animation(.spring(response: 0.32, dampingFraction: 0.78), value: heroHover)
+                .animation(.spring(response: 0.22, dampingFraction: 0.7), value: heroPress)
+            }
+            .buttonStyle(.plain)
+            .onHover { heroHover = $0 }
+            .accessibilityLabel("Open Cleaner. Opens the Cleaner suite window.")
+            .help("Cleaner suite — Smart Care and all cleanup tools")
+            .opacity(appeared ? 1 : 0)
+            .offset(y: appeared ? 0 : 8)
+
             TurboButton(
                 isActive: appState.isTurboActive,
                 isBusy: appState.isOptimizing && appState.turboProgress != nil
             ) {
                 appState.toggleTurbo()
             }
-
-            HStack(spacing: 6) {
-                Image(systemName: appState.turbo.indexingDisabledVerified ? "checkmark.seal.fill" : "questionmark.circle")
-                    .foregroundStyle(appState.turbo.indexingDisabledVerified ? TurboTheme.bandColor(.good) : .secondary)
-                    .font(.system(size: 11, weight: .bold))
-                Text(appState.turbo.lastVerifiedDetail)
-                    .font(Design.Text.micro)
-                    .foregroundStyle(.primary.opacity(0.75))
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-            }
+            .opacity(appeared ? 1 : 0)
+            .offset(y: appeared ? 0 : 6)
 
             if let msg = appState.turboProgress {
                 Text(msg)
@@ -33,46 +74,28 @@ struct ActionButtonsView: View {
 
             if let report = appState.lastReport {
                 ActionReportBanner(report: report)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
-            Button {
-                CleanerWindowController.show()
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 13, weight: .bold))
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Open Cleaner")
-                            .font(.system(size: 12, weight: .bold, design: .rounded))
-                        Text("Smart Care · Uninstall · Large files · more")
-                            .font(.system(size: 9, weight: .medium, design: .rounded))
-                            .opacity(0.9)
-                    }
-                    Spacer(minLength: 0)
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 11, weight: .bold))
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.orange.gradient)
-                )
-            }
-            .buttonStyle(.plain)
-            .help("Opens the full Cleaner window")
-
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 ActionChip(title: "Free RAM", symbol: "arrow.3.trianglepath", tint: Color(red: 0.35, green: 0.55, blue: 1.0)) {
                     appState.freeRAM()
                 }
-                ActionChip(title: "Deep Clean", symbol: "trash.fill", tint: Color.orange.opacity(0.85)) {
+                ActionChip(title: "Deep Clean", symbol: "trash.fill", tint: Color.orange.opacity(0.9)) {
                     appState.clearCache()
                 }
                 ActionChip(title: "Kill Hogs", symbol: "xmark.octagon.fill", tint: Color.red) {
                     appState.killHogs()
                 }
+            }
+            .opacity(appeared ? 1 : 0)
+            .offset(y: appeared ? 0 : 6)
+        }
+        .animation(.spring(response: 0.4, dampingFraction: 0.86), value: appeared)
+        .animation(.easeInOut(duration: 0.25), value: appState.turboProgress)
+        .onAppear {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.84).delay(0.05)) {
+                appeared = true
             }
         }
     }
@@ -105,8 +128,10 @@ private struct ActionChip: View {
             .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(tint.opacity(hover ? 0.16 : 0.10))
+                    .fill(tint.opacity(hover ? 0.18 : 0.10))
             )
+            .scaleEffect(hover ? 1.03 : 1.0)
+            .animation(.spring(response: 0.28, dampingFraction: 0.75), value: hover)
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }

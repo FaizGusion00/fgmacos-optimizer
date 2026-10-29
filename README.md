@@ -4,11 +4,11 @@ Premium macOS **menu-bar** optimizer — live metrics, Turbo Mode, Smart Watchdo
 
 ## Download & install
 
-**Latest release:** [FGMacOS Optimizer v1.9.0](https://github.com/FaizGusion00/fgmacos-optimizer/releases/tag/v1.9.0)
+**Latest release:** [FGMacOS Optimizer v1.10.0](https://github.com/FaizGusion00/fgmacos-optimizer/releases/tag/v1.10.0)
 
 | File | What to do |
 |------|------------|
-| **[FGMacOS-Optimizer-v1.9.0.dmg](https://github.com/FaizGusion00/fgmacos-optimizer/releases/download/v1.9.0/FGMacOS-Optimizer-v1.9.0.dmg)** | Open DMG → baca **BACA-INI.txt** → right-click **00-INSTALL.command** → Open |
+| **[FGMacOS-Optimizer-v1.10.0.dmg](https://github.com/FaizGusion00/fgmacos-optimizer/releases/download/v1.10.0/FGMacOS-Optimizer-v1.10.0.dmg)** | Open DMG → baca **BACA-INI.txt** → right-click **00-INSTALL.command** → Open |
 
 ### “Apple could not verify…” / button **Done** only
 Gatekeeper (unsigned free app). **Not malware.** After you click Done once:
@@ -39,7 +39,10 @@ App lives in the **menu bar** (gauge / bolt icon) — no Dock icon.
 - **24h CPU hall of fame** — history + Quit leftovers
 - **Turbo Mode** — pause Spotlight *indexing*, stop Time Machine backup, clear Derived Data
 - **Watchdog** — CPU hog + hung apps with whitelist
-- **Cleaner window (CleanMyMac-style)** — Smart Care, Uninstaller + leftovers, Large & Old, Duplicates, Startup agents, TM local snapshots, Dev pack, Mail/Messages attachments, Space Lens, Browser caches (no cookies)
+- **Cleaner suite** — Smart Care, Uninstaller + leftovers, Large & Old, Duplicates, Startup agents, TM local snapshots, Dev pack, Mail/Messages attachments, Space Lens, Browser caches (no cookies)
+- **Schedule** — daily/weekly Smart Care scan + notification (confirm before clean)
+- **History / Undo** — log cleaned paths; restore from Trash when still present
+- **Protection list** — whitelist folders/apps so they never scan/clean
 - **Shortcuts + Widget** — Free RAM / Turbo / DNS via Shortcuts; Notification Center widget
 - **Security session** — one admin unlock reused for the timed window
 - **Appearance** — Auto / Light / Dark · Open at Login
@@ -52,7 +55,14 @@ App lives in the **menu bar** (gauge / bolt icon) — no Dock icon.
 
 ```bash
 xcodegen generate
-./Scripts/build.sh Release
+./Scripts/build.sh Release   # ad-hoc (fast debug)
+```
+
+For **Developer ID + notarize** (stable Accessibility / FDA across updates): see [Docs/SIGNING.md](Docs/SIGNING.md).
+
+```bash
+export DEVELOPMENT_TEAM=YOUR_TEAM_ID
+./Scripts/sign_and_notarize.sh
 ```
 
 ## Architecture notes

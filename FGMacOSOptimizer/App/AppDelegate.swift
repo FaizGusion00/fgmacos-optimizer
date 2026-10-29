@@ -18,20 +18,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         UNUserNotificationCenter.current().delegate = self
+        SmartCareScheduler.registerNotificationCategory()
         setupStatusItem()
         setupPopover()
         bindStatusIcon()
         bindMeters()
         bindAppearance()
         appState.start()
+        SmartCareScheduler.shared.start()
         AppearanceStore.shared.applyNow()
         AppLog.lifeFile("didFinishLaunching pid=\(ProcessInfo.processInfo.processIdentifier) path=\(Bundle.main.bundlePath)")
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
             self?.showPopoverFromStatusItem()
             if ProcessInfo.processInfo.arguments.contains("--open-cleaner") {
-                CleanerWindowController.show()
+                CleanerWindowController.show(showIntroIfNeeded: true)
+            } else if PermissionManager.shared.shouldReopenCleanerAfterRelaunch {
+                // Accessibility often needs relaunch before AXIsProcessTrusted flips.
+                PermissionManager.shared.clearReopenCleanerFlag()
+                PermissionManager.shared.refresh()
+                AppLog.lifeFile("post-relaunch \(PermissionManager.shared.permissionSnapshot())")
+                if !PermissionManager.shared.accessibilityTrusted {
+                    // Stale Settings row (common after ad-hoc rebuild) — guide retoggle.
+                    PermissionManager.shared.markAccessibilityRelaunchDidNotApply()
+                    PermissionsWindowController.show()
+                } else {
+                    CleanerWindowController.show(showIntroIfNeeded: true)
+                }
             } else if !PermissionManager.shared.hasCompletedOnboarding {
+                // Ask permissions early — Continue always available (optional).
                 PermissionsWindowController.show()
             } else {
                 self?.flashLaunchNotice()
@@ -272,11 +287,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let userInfo = response.notification.request.content.userInfo
         let pid = userInfo["pid"] as? Int32 ?? Int32(userInfo["pid"] as? Int ?? 0)
         Task { @MainActor in
-            if response.actionIdentifier == WatchdogEngine.killActionID, pid > 1 {
+            let id = response.notification.request.identifier
+            let action = response.actionIdentifier
+            let info = response.notification.request.content.userInfo
+            if action == WatchdogEngine.killActionID, pid > 1 {
                 await appState.watchdog.forceKillPID(pid)
-            } else if response.notification.request.identifier == "fg.smart.ram" {
+            } else if id == "fg.smart.ram" {
                 appState.freeRAM(skipConfirm: true, fromSmartSuggest: true)
-            } else if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
+            } else if id == SmartCareScheduler.notificationID
+                        || action == SmartCareScheduler.reviewActionID
+                        || (info["fg.action"] as? String) == "openSmartCare" {
+                SmartCareScheduler.shared.openCleanerForReview()
+            } else if action == UNNotificationDefaultActionIdentifier {
                 showPopoverFromStatusItem()
             }
             completionHandler()

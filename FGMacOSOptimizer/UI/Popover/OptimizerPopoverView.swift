@@ -44,9 +44,10 @@ struct OptimizerPopoverView: View {
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 8) {
+                        // Cleaner first — primary job of the product.
+                        sectionCard { ActionButtonsView() }
                         sectionCard { StatusGaugesView(metrics: appState.displayMetrics) }
                         sectionCard { FocusProfileView() }
-                        sectionCard { ActionButtonsView() }
                         sectionCard { SmartRAMView() }
                         sectionCard { ThermalStoryView() }
                         sectionCard { NetworkPulseView() }
@@ -212,9 +213,9 @@ struct OptimizerPopoverView: View {
             .buttonStyle(.plain)
 
             Button {
-                CleanerWindowController.show()
+                CleanerWindowController.show(showIntroIfNeeded: true)
             } label: {
-                Label("Cleaner", systemImage: "sparkles")
+                Label("Open Cleaner", systemImage: "sparkles")
                     .font(Design.Text.caption)
                     .foregroundStyle(Color.orange)
             }
@@ -222,7 +223,7 @@ struct OptimizerPopoverView: View {
 
             Spacer()
 
-            Text("v1.9.0")
+            Text("v1.10.0")
                 .font(Design.Text.micro)
                 .foregroundStyle(tertiary)
 

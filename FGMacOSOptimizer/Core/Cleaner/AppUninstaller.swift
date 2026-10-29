@@ -25,6 +25,8 @@ actor AppUninstaller {
                         let display = bundle?.object(forInfoDictionaryKey: "CFBundleName") as? String
                             ?? name.replacingOccurrences(of: ".app", with: "")
                         if CleanSafety.isProtectedApp(bundleID: bid, name: display) { continue }
+                        if ProtectionGuard.isBundleProtected(bid) { continue }
+                        if ProtectionGuard.isPathProtected(path) { continue }
                         if bid?.hasPrefix("com.apple.") == true { continue }
                         let size = CleanSafety.directoryOrFileSize(URL(fileURLWithPath: path))
                         apps.append(InstalledApp(name: display, path: path, bundleID: bid, bytes: size))
