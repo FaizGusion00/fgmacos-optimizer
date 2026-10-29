@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         bindAppearance()
         appState.start()
         AppearanceStore.shared.applyNow()
+        AppLog.lifeFile("didFinishLaunching pid=\(ProcessInfo.processInfo.processIdentifier) path=\(Bundle.main.bundlePath)")
 
         // Make launch obvious: menu-bar apps have no Dock icon, so open UI once.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
@@ -32,6 +33,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self?.flashLaunchNotice()
             }
         }
+    }
+
+    /// Critical for LSUIElement apps: closing the launch alert / Permissions window
+    /// must NOT quit the process (otherwise it looks like “auto close”).
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showPopoverFromStatusItem()
+        return true
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        AppLog.lifeFile("applicationShouldTerminate requested")
+        return .terminateNow
     }
 
     /// Opens the menu-bar popover programmatically (used on launch).
@@ -45,19 +62,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func flashLaunchNotice() {
         // Once per day — menu-bar apps have no Dock icon so users think launch failed.
+        // Use a user notification instead of a modal alert: modal alerts count as windows and
+        // on some macOS versions quitting after the last window closed killed the menu-bar app.
         let key = "fg.launch.notice.\(Calendar.current.startOfDay(for: Date()).timeIntervalSince1970)"
         guard !UserDefaults.standard.bool(forKey: key) else { return }
         UserDefaults.standard.set(true, forKey: key)
 
-        let alert = NSAlert()
-        alert.messageText = "FGMacOS Optimizer is running"
-        alert.informativeText = "Look at the menu bar (top-right) for the gauge / bolt icon. Click it anytime to open the optimizer."
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
+        Task {
+            let granted = await PermissionManager.shared.requestNotificationsIfNeeded()
+            guard granted else { return }
+            let content = UNMutableNotificationContent()
+            content.title = "FGMacOS Optimizer is running"
+            content.body = "Look at the menu bar (top-right) for the gauge / bolt icon."
+            content.sound = .default
+            let req = UNNotificationRequest(
+                identifier: "fg.launch.notice",
+                content: content,
+                trigger: nil
+            )
+            try? await UNUserNotificationCenter.current().add(req)
+            AppLog.lifeFile("posted launch banner notification")
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        AppLog.lifeFile("willTerminate")
         appState.stop()
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)

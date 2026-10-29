@@ -65,14 +65,12 @@ final class SessionAuth: ObservableObject {
         return isUnlocked && privilegeVerified && authRef != nil
     }
 
-    var prefersBiometrics: Bool {
-        let context = LAContext()
-        return context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
-    }
+    /// Cached — do not recreate LAContext every TimelineView tick (was spamming authd every 1s).
+    private(set) var prefersBiometrics: Bool = false
 
     func refreshBiometryLabel() {
         let context = LAContext()
-        _ = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
+        prefersBiometrics = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
         switch context.biometryType {
         case .touchID: biometryLabel = "Touch ID"
         case .faceID: biometryLabel = "Face ID"
