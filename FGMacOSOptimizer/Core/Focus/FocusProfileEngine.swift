@@ -89,27 +89,38 @@ final class FocusProfileEngine: ObservableObject {
         statusMessage = "Applying \(profile.title)…"
         var quitCount = 0
         let before = MachMemory.sample()?.availableBytes ?? 0
-
-        // Turbo (Spotlight pause) for all focus profiles.
-        if !turbo.isActive {
-            let result = await turbo.activate()
-            if result.error == nil {
-                enabledTurboForProfile = true
-            }
-        } else {
-            enabledTurboForProfile = true
-        }
+        var turboNote = "Turbo left alone"
 
         switch profile {
-        case .meeting:
-            openFocusSettingsHint()
-            quitCount += await quitLeftovers(whitelist: whitelist, aggressive: false)
-            await PowerModeHelper.setLowPower(true, onlyOnBattery: true)
+        case .meeting, .gaming:
+            // Soft Turbo only (folder exclusions + stop TM) — never volume mdutil -a.
+            if !turbo.isActive {
+                let clearDD = FeatureSettingsStore.shared.clearDerivedDataOnTurbo
+                let result = await turbo.activate(clearDerivedData: clearDD)
+                if result.error == nil {
+                    enabledTurboForProfile = true
+                    turboNote = "Soft Turbo on"
+                }
+            } else {
+                enabledTurboForProfile = true
+                turboNote = "Soft Turbo already on"
+            }
+            if profile == .meeting {
+                openFocusSettingsHint()
+                quitCount += await quitLeftovers(whitelist: whitelist, aggressive: false)
+                await PowerModeHelper.setLowPower(true, onlyOnBattery: true)
+            } else {
+                quitCount += await quitLeftovers(whitelist: whitelist, aggressive: true)
+                await PowerModeHelper.setLowPower(false, onlyOnBattery: false)
+            }
         case .coding:
-            break
-        case .gaming:
-            quitCount += await quitLeftovers(whitelist: whitelist, aggressive: true)
-            await PowerModeHelper.setLowPower(false, onlyOnBattery: false)
+            // Do NOT activate Turbo — avoids Spotlight/DerivedData friction while coding in VS Code.
+            _ = await PrivilegedRunner.run(
+                "/usr/bin/tmutil",
+                args: ["stopbackup"],
+                needsAdmin: false
+            )
+            turboNote = "Coding · no Turbo (Spotlight untouched)"
         case .off:
             break
         }
@@ -125,7 +136,7 @@ final class FocusProfileEngine: ObservableObject {
             processesQuit: quitCount,
             focusName: profile.title,
             lowPowerChanged: profile == .meeting || profile == .gaming,
-            detail: "Turbo \(turbo.isActive ? "on" : "off")"
+            detail: turboNote
         )
     }
 
@@ -138,7 +149,7 @@ final class FocusProfileEngine: ObservableObject {
         active = .off
         UserDefaults.standard.set(FocusProfile.off.rawValue, forKey: defaultsKey)
         statusMessage = nil
-        return ActionReport(title: "Focus off", focusName: "Off", detail: "Spotlight restored if we paused it")
+        return ActionReport(title: "Focus off", focusName: "Off", detail: "Soft Turbo cleared if Focus had enabled it")
     }
 
     private func quitLeftovers(whitelist: WhitelistStore, aggressive: Bool) async -> Int {

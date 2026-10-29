@@ -20,7 +20,7 @@ struct FreeRAMIntent: AppIntent {
 @available(macOS 13.0, *)
 struct ToggleTurboIntent: AppIntent {
     static var title: LocalizedStringResource = "Toggle Turbo Mode"
-    static var description = IntentDescription("Pause or resume Spotlight indexing (Turbo).")
+    static var description = IntentDescription("Toggle soft Turbo (exclude heavy caches from Spotlight; no volume reindex).")
     static var openAppWhenRun: Bool = true
 
     @MainActor

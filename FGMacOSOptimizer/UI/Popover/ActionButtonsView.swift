@@ -57,10 +57,11 @@ struct ActionButtonsView: View {
 
             TurboButton(
                 isActive: appState.isTurboActive,
-                isBusy: appState.isOptimizing && appState.turboProgress != nil
+                isBusy: appState.isOptimizing
             ) {
                 appState.toggleTurbo()
             }
+            .disabled(appState.isOptimizing)
             .opacity(appeared ? 1 : 0)
             .offset(y: appeared ? 0 : 6)
 
@@ -88,6 +89,8 @@ struct ActionButtonsView: View {
                     appState.killHogs()
                 }
             }
+            .disabled(appState.isOptimizing)
+            .opacity(appState.isOptimizing ? 0.55 : 1)
             .opacity(appeared ? 1 : 0)
             .offset(y: appeared ? 0 : 6)
         }

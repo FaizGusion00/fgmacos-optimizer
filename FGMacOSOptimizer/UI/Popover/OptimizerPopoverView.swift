@@ -38,9 +38,17 @@ struct OptimizerPopoverView: View {
                     .padding(.top, 14)
                     .padding(.bottom, 10)
 
+                if let status = appState.operationStatus {
+                    OperationStatusBanner(title: status, detail: appState.operationDetail)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 8)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
                 appearancePicker
                     .padding(.horizontal, 16)
                     .padding(.bottom, 10)
+                    .opacity(appState.isOptimizing ? 0.55 : 1)
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 8) {
@@ -59,6 +67,8 @@ struct OptimizerPopoverView: View {
                     }
                     .padding(.horizontal, 10)
                     .padding(.bottom, 4)
+                    .opacity(appState.isOptimizing ? 0.72 : 1)
+                    .allowsHitTesting(!appState.isOptimizing)
                 }
 
                 footer
@@ -67,6 +77,7 @@ struct OptimizerPopoverView: View {
             }
             .opacity(appeared ? 1 : 0)
             .offset(y: appeared ? 0 : 8)
+            .animation(.spring(response: 0.35, dampingFraction: 0.86), value: appState.operationStatus)
         }
         .frame(width: Design.popoverWidth, height: Design.popoverHeight)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -223,7 +234,7 @@ struct OptimizerPopoverView: View {
 
             Spacer()
 
-            Text("v1.10.0")
+            Text("v1.10.3")
                 .font(Design.Text.micro)
                 .foregroundStyle(tertiary)
 

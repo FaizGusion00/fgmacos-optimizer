@@ -38,8 +38,8 @@ struct TurboButton: View {
                         Text(isActive ? "Turbo On" : "Boost Now")
                             .font(.system(size: 15, weight: .bold, design: .rounded))
                         Text(isActive
-                               ? "Indexing off · search still works"
-                               : "Pause Spotlight indexing (not search)")
+                               ? "Heavy caches excluded · no reindex on off"
+                               : "Exclude heavy caches · Spotlight stays on")
                             .font(.system(size: 10, weight: .medium))
                             .opacity(0.85)
                     }

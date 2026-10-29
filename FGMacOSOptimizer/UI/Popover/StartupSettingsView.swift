@@ -31,7 +31,7 @@ struct StartupSettingsView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Optimize after startup")
                         .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    Text("Stop Time Machine backups on launch; keep Turbo if Spotlight was paused")
+                    Text("Stop Time Machine backups on launch; keep soft Turbo state")
                         .font(Design.Text.micro)
                         .foregroundStyle(.primary.opacity(0.72))
                         .fixedSize(horizontal: false, vertical: true)
@@ -40,6 +40,19 @@ struct StartupSettingsView: View {
             .toggleStyle(.switch)
             .controlSize(.small)
             .disabled(!launch.isEnabled && !launch.optimizeOnLaunch)
+
+            Toggle(isOn: $features.clearDerivedDataOnTurbo) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Clear Derived Data with Turbo")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    Text("Off by default — wiping Derived Data can disrupt Xcode builds")
+                        .font(Design.Text.micro)
+                        .foregroundStyle(.primary.opacity(0.72))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
 
             Toggle(isOn: $features.showMenuBarMeters) {
                 VStack(alignment: .leading, spacing: 2) {

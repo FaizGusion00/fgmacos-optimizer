@@ -11,7 +11,7 @@ final class LaunchAtLoginStore: ObservableObject {
     @Published private(set) var isEnabled: Bool = false
     @Published var statusMessage: String?
 
-    /// After login, restore Turbo Mode (Spotlight pause) when admin allows / already disabled.
+    /// After login, run light optimize (e.g. stop TM backup). Soft Turbo state is separate.
     @Published var optimizeOnLaunch: Bool {
         didSet { UserDefaults.standard.set(optimizeOnLaunch, forKey: Keys.optimizeOnLaunch) }
     }

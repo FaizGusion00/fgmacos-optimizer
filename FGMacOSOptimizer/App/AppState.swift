@@ -10,6 +10,10 @@ final class AppState: ObservableObject {
     @Published var displayMetrics = SystemMetrics.zero
     @Published var isTurboActive = false
     @Published var isOptimizing = false
+    /// Short status shown in the busy banner while an action runs.
+    @Published var operationStatus: String?
+    @Published var operationDetail: String?
+    @Published var cleaningBucket: StorageBucket?
     @Published var lastCleanResult: CleanResult?
     @Published var lastReport: ActionReport?
     @Published var watchdogItems: [WatchdogItem] = []
@@ -43,9 +47,50 @@ final class AppState: ObservableObject {
     private var didNotifySmartRAM = false
 
     private enum Pace {
-        static let samplerOpen: TimeInterval = 1.0
-        static let samplerClosed: TimeInterval = 4.0
-        static let samplerAfterAction: TimeInterval = 1.2
+        static let samplerOpen: TimeInterval = 1.6
+        static let samplerClosed: TimeInterval = 5.0
+        static let samplerAfterAction: TimeInterval = 2.0
+        static let samplerBusy: TimeInterval = 8.0
+    }
+
+    /// Runs a long action with visible loading state + quieter metrics sampling (stability).
+    func runOperation(
+        status: String,
+        detail: String? = nil,
+        bucket: StorageBucket? = nil,
+        kickMetricsAfter: Bool = true,
+        _ work: @escaping () async -> Void
+    ) {
+        guard !isOptimizing else { return }
+        Task {
+            beginOperation(status, detail: detail, bucket: bucket)
+            defer { endOperation() }
+            await work()
+            if kickMetricsAfter, isPopoverOpen {
+                sampler.setInterval(Pace.samplerAfterAction)
+                sampler.kick()
+            }
+        }
+    }
+
+    private func beginOperation(_ status: String, detail: String?, bucket: StorageBucket?) {
+        isOptimizing = true
+        operationStatus = status
+        operationDetail = detail
+        cleaningBucket = bucket
+        sampler.setInterval(Pace.samplerBusy)
+        watchdog.setForeground(false)
+        NotificationCenter.default.post(name: .fgOperationDidStart, object: status)
+    }
+
+    private func endOperation() {
+        isOptimizing = false
+        operationStatus = nil
+        operationDetail = nil
+        cleaningBucket = nil
+        sampler.setInterval(isPopoverOpen ? Pace.samplerOpen : Pace.samplerClosed)
+        watchdog.setForeground(isPopoverOpen)
+        NotificationCenter.default.post(name: .fgOperationDidEnd, object: nil)
     }
 
     func start() {
@@ -107,7 +152,7 @@ final class AppState: ObservableObject {
 
         sampler.start(interval: Pace.samplerClosed)
         network.start(interval: 2.5)
-        turbo.syncFromSystem()
+        Task { await turbo.syncFromSystem() }
         SharedMetricsSnapshot.write(from: displayMetrics, turbo: isTurboActive)
 
         thermalObserver.start { [weak self] level in
@@ -147,9 +192,8 @@ final class AppState: ObservableObject {
         watchdog.stop()
         network.stop()
         thermalObserver.stop()
-        if isTurboActive {
-            Task { await turbo.deactivate() }
-        }
+        // Never mdutil -a -i on at quit — that caused Spotlight reindex storms.
+        turbo.detachWithoutRestoringSpotlight()
     }
 
     func popoverDidOpen() {
@@ -232,64 +276,62 @@ final class AppState: ObservableObject {
 
     func toggleTurbo() {
         if isTurboActive {
-            Task {
-                isOptimizing = true
-                defer { isOptimizing = false }
-                let before = rawMetrics.memoryAvailableBytes
-                await turbo.deactivate()
-                publishReport(ActionReport(
+            runOperation(status: "Turning Turbo off…", detail: "Finishing soft Turbo") {
+                let before = self.rawMetrics.memoryAvailableBytes
+                await self.turbo.deactivate()
+                self.publishReport(ActionReport(
                     title: "Turbo off",
                     availableBefore: before,
                     availableAfter: MachMemory.sample()?.availableBytes ?? before,
-                    detail: "Spotlight indexing resumed"
+                    detail: "Soft Turbo off — Spotlight volume unchanged (no reindex storm)"
                 ))
             }
             return
         }
 
+        let clearDD = FeatureSettingsStore.shared.clearDerivedDataOnTurbo
+        let ddLine = clearDD
+            ? "\n\nAlso clears Xcode Derived Data (you enabled this in Startup settings)."
+            : "\n\nDoes NOT clear Xcode Derived Data (enable in Startup settings if you want that)."
         let confirmed = confirm(
             title: "Enable Turbo Mode?",
-            message: "Pauses Spotlight INDEXING (background reindex that burns CPU/disk). Spotlight SEARCH still works — that is normal.\n\nAlso stops Time Machine backups in progress and clears Xcode Derived Data.\n\nTurbo does NOT free RAM. Use Free RAM for that."
+            message: "Excludes heavy cache folders from Spotlight (Caches, DerivedData, simulators, npm/pnpm caches) and stops Time Machine backups in progress.\n\nVolume-wide Spotlight indexing stays ON — turning Turbo off will NOT trigger a full reindex storm." + ddLine + "\n\nTurbo does NOT free RAM. Use Free RAM for that."
         )
         guard confirmed else { return }
 
-        Task {
-            isOptimizing = true
-            defer { isOptimizing = false }
-            let before = rawMetrics.memoryAvailableBytes
-            let result = await turbo.activate()
+        runOperation(status: "Enabling Turbo…", detail: "Excluding heavy caches · stopping TM backup") {
+            let before = self.rawMetrics.memoryAvailableBytes
+            let result = await self.turbo.activate(clearDerivedData: clearDD)
             if let error = result.error {
-                actionError = error
+                self.actionError = error
                 if error.localizedCaseInsensitiveContains("cancel") {
-                    lastAuthCancelAt = Date()
+                    self.lastAuthCancelAt = Date()
                 }
             } else {
-                publishReport(ActionReport(
+                self.publishReport(ActionReport(
                     title: "Turbo on",
                     availableBefore: before,
                     availableAfter: MachMemory.sample()?.availableBytes ?? before,
-                    detail: "Indexing paused"
+                    detail: "Heavy folders excluded · volume indexing ON"
                 ))
             }
-            sampler.kick()
         }
     }
 
     func clearCache() {
         let confirmed = confirm(
             title: "Deep Clean?",
-            message: "Safely clears allow-listed caches under ~/Library/Caches. DNS flush needs your admin password. Docker dangling volumes are pruned only if Docker is installed."
+            message: "Clears regenerable caches under ~/Library/Caches, flushes DNS (admin), and prunes unused Docker data if Docker is installed."
         )
         guard confirmed else { return }
 
-        Task {
-            isOptimizing = true
-            defer { isOptimizing = false }
-            let before = rawMetrics.memoryAvailableBytes
-            let result = await cleaner.runDeepClean()
-            lastCleanResult = result
+        runOperation(status: "Deep cleaning…", detail: "Caches → DNS → Docker. This can take a minute.") {
+            let before = self.rawMetrics.memoryAvailableBytes
+            self.operationDetail = "Cleaning safe caches…"
+            let result = await self.cleaner.runDeepClean()
+            self.lastCleanResult = result
             let after = MachMemory.sample()?.availableBytes ?? before
-            publishReport(ActionReport(
+            self.publishReport(ActionReport(
                 title: "Deep Clean",
                 availableBefore: before,
                 availableAfter: after,
@@ -297,10 +339,7 @@ final class AppState: ObservableObject {
                 dnsFlushed: result.dnsFlushed,
                 detail: result.summary
             ))
-            if isPopoverOpen {
-                sampler.setInterval(Pace.samplerAfterAction)
-                sampler.kick()
-            }
+            self.storageBuckets = await self.storageScanner.refreshAll()
         }
     }
 
@@ -313,21 +352,18 @@ final class AppState: ObservableObject {
             guard confirmed else { return }
         }
 
-        Task {
-            isOptimizing = true
-            defer { isOptimizing = false }
-            let result = await cleaner.purgeInactiveMemory()
-            lastCleanResult = result
+        runOperation(status: "Freeing RAM…", detail: "Running purge — enter admin if asked") {
+            let result = await self.cleaner.purgeInactiveMemory()
+            self.lastCleanResult = result
             if !result.memoryPurged {
-                actionError = "Purge cancelled or failed. Admin permission is required."
-                lastAuthCancelAt = Date()
+                self.actionError = "Purge cancelled or failed. Admin permission is required."
+                self.lastAuthCancelAt = Date()
             } else {
-                publishReport(ActionReport.fromCleanResult(
+                self.publishReport(ActionReport.fromCleanResult(
                     result,
                     title: fromSmartSuggest ? "Smart Free RAM" : "Free RAM"
                 ))
             }
-            sampler.kick()
         }
     }
 
@@ -344,13 +380,11 @@ final class AppState: ObservableObject {
         )
         guard confirmed else { return }
 
-        Task {
-            isOptimizing = true
-            defer { isOptimizing = false }
-            let before = rawMetrics.memoryAvailableBytes
+        runOperation(status: "Quitting CPU hogs…", detail: names) {
+            let before = self.rawMetrics.memoryAvailableBytes
             let count = hogs.count
-            await watchdog.killAllHogs(whitelist: whitelist)
-            publishReport(ActionReport(
+            await self.watchdog.killAllHogs(whitelist: self.whitelist)
+            self.publishReport(ActionReport(
                 title: "Kill Hogs",
                 availableBefore: before,
                 availableAfter: MachMemory.sample()?.availableBytes ?? before,
@@ -377,29 +411,35 @@ final class AppState: ObservableObject {
     }
 
     func applyFocus(_ profile: FocusProfile) {
-        Task {
-            isOptimizing = true
-            defer { isOptimizing = false }
-            let report = await focus.apply(profile, turbo: turbo, watchdog: watchdog, whitelist: whitelist)
-            publishReport(report)
-            sampler.kick()
+        runOperation(status: "Applying \(profile.title) focus…", detail: "Updating focus profile") {
+            let report = await self.focus.apply(
+                profile, turbo: self.turbo, watchdog: self.watchdog, whitelist: self.whitelist
+            )
+            self.publishReport(report)
         }
     }
 
     func flushDNS() {
-        Task {
-            isOptimizing = true
-            defer { isOptimizing = false }
-            let result = await cleaner.flushDNSOnly()
-            lastCleanResult = result
-            publishReport(ActionReport.fromCleanResult(result, title: "DNS flush"))
+        runOperation(status: "Flushing DNS…", detail: "Admin may be required") {
+            let result = await self.cleaner.flushDNSOnly()
+            self.lastCleanResult = result
+            self.publishReport(ActionReport.fromCleanResult(result, title: "DNS flush"))
         }
     }
 
     func refreshStorageMap() {
+        guard !storageScanning else { return }
         Task {
             storageScanning = true
-            defer { storageScanning = false }
+            operationStatus = "Scanning storage…"
+            operationDetail = "Measuring caches, Docker, Downloads…"
+            defer {
+                storageScanning = false
+                if !isOptimizing {
+                    operationStatus = nil
+                    operationDetail = nil
+                }
+            }
             storageBuckets = await storageScanner.refreshAll()
         }
     }
@@ -408,33 +448,34 @@ final class AppState: ObservableObject {
         if bucket.needsConfirm {
             let confirmed = confirm(
                 title: "Clean \(bucket.title)?",
-                message: "This permanently deletes files in \(bucket.title). Continue?"
+                message: bucket.confirmMessage
             )
             guard confirmed else { return }
         }
-        Task {
-            isOptimizing = true
-            defer { isOptimizing = false }
-            let result = await cleaner.cleanBucket(bucket)
-            lastCleanResult = result
-            publishReport(ActionReport.fromCleanResult(result, title: "Clean \(bucket.title)"))
-            storageBuckets = await storageScanner.refreshAll()
+        runOperation(
+            status: "Cleaning \(bucket.title)…",
+            detail: "Working — please wait until this finishes",
+            bucket: bucket
+        ) {
+            let result = await self.cleaner.cleanBucket(bucket)
+            self.lastCleanResult = result
+            self.operationDetail = "Refreshing sizes…"
+            self.publishReport(ActionReport.fromCleanResult(result, title: "Clean \(bucket.title)"))
+            self.storageBuckets = await self.storageScanner.refreshAll()
         }
     }
 
     func coolDown() {
-        Task {
-            isOptimizing = true
-            defer { isOptimizing = false }
-            let thermalBefore = rawMetrics.thermalLevel
-            let before = rawMetrics.memoryAvailableBytes
-            let targets = watchdogItems.filter { $0.kind == .hog || $0.kind == .elevated }
+        runOperation(status: "Cooling down…", detail: "Quitting hogs · Low Power if on battery") {
+            let thermalBefore = self.rawMetrics.thermalLevel
+            let before = self.rawMetrics.memoryAvailableBytes
+            let targets = self.watchdogItems.filter { $0.kind == .hog || $0.kind == .elevated }
             let count = targets.count
-            await watchdog.killAllHogs(whitelist: whitelist)
+            await self.watchdog.killAllHogs(whitelist: self.whitelist)
             await PowerModeHelper.setLowPower(true, onlyOnBattery: true)
             try? await Task.sleep(nanoseconds: 500_000_000)
             let thermalAfter = ThermalMonitor.sample()
-            publishReport(ActionReport(
+            self.publishReport(ActionReport(
                 title: "Cool down",
                 availableBefore: before,
                 availableAfter: MachMemory.sample()?.availableBytes ?? before,
@@ -443,26 +484,23 @@ final class AppState: ObservableObject {
                 thermalAfter: thermalAfter,
                 lowPowerChanged: true
             ))
-            sampler.kick()
         }
     }
 
     func quitLeftovers() {
-        Task {
-            isOptimizing = true
-            defer { isOptimizing = false }
+        runOperation(status: "Quitting leftovers…", detail: "Closing noisy helper apps") {
             var quit = 0
             for app in NSWorkspace.shared.runningApplications {
                 let name = app.localizedName ?? ""
                 let bid = app.bundleIdentifier
                 guard LeftoverApps.matches(bundleID: bid, name: name) else { continue }
-                guard whitelist.isKillCandidate(bundleID: bid, name: name, runningApp: app) else { continue }
+                guard self.whitelist.isKillCandidate(bundleID: bid, name: name, runningApp: app) else { continue }
                 _ = app.terminate()
                 try? await Task.sleep(nanoseconds: 350_000_000)
                 if !app.isTerminated { _ = app.forceTerminate() }
                 quit += 1
             }
-            publishReport(ActionReport(title: "Quit leftovers", processesQuit: quit))
+            self.publishReport(ActionReport(title: "Quit leftovers", processesQuit: quit))
         }
     }
 

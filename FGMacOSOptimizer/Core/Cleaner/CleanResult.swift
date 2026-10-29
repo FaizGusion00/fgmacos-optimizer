@@ -25,8 +25,11 @@ struct CleanResult: Equatable, Sendable {
             parts.append("Caches scanned")
         }
         if dnsFlushed { parts.append("DNS flushed") }
-        if dockerPruned { parts.append("Docker volumes pruned") }
-        else if let dockerMessage, !memoryPurged { parts.append(dockerMessage) }
+        if dockerPruned {
+            parts.append(dockerMessage ?? "Docker unused data pruned")
+        } else if let dockerMessage, !memoryPurged {
+            parts.append(dockerMessage)
+        }
         return parts.joined(separator: " · ")
     }
 

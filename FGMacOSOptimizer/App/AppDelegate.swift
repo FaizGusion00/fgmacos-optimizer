@@ -154,6 +154,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self?.updateMeters(metrics: metrics, showMeters: showMeters, focus: focus)
             }
             .store(in: &cancellables)
+
+        appState.$operationStatus
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                guard let self, let button = self.statusItem?.button else { return }
+                if let status {
+                    let short = status.replacingOccurrences(of: "…", with: "")
+                    button.toolTip = "\(short) — FGMacOS Optimizer is working"
+                    // Compact live cue in the menu bar while busy.
+                    if button.title.isEmpty || self.appState.isOptimizing {
+                        let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
+                        button.attributedTitle = NSAttributedString(string: "…", attributes: [
+                            .font: font,
+                            .foregroundColor: NSColor.systemOrange
+                        ])
+                    }
+                } else {
+                    button.toolTip = "FGMacOS Optimizer"
+                }
+            }
+            .store(in: &cancellables)
     }
 
     private func updateMeters(metrics: SystemMetrics, showMeters: Bool, focus: FocusProfile) {
@@ -265,7 +286,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func startEventMonitor() {
         eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             Task { @MainActor in
-                self?.closePopover()
+                // Keep popover open while Clean/Turbo runs so the loading banner stays visible.
+                guard let self, !self.appState.isOptimizing else { return }
+                self.closePopover()
             }
         }
     }

@@ -10,6 +10,7 @@ final class FeatureSettingsStore: ObservableObject {
         static let autoFreeRAM = "fg.settings.autoFreeRAM"
         static let lastAutoFreeRAM = "fg.settings.lastAutoFreeRAM"
         static let historyPaused = "fg.settings.historyPaused"
+        static let clearDerivedOnTurbo = "fg.settings.clearDerivedDataOnTurbo"
     }
 
     @Published var showMenuBarMeters: Bool {
@@ -22,6 +23,11 @@ final class FeatureSettingsStore: ObservableObject {
 
     @Published var historyCollectionPaused: Bool {
         didSet { UserDefaults.standard.set(historyCollectionPaused, forKey: Keys.historyPaused) }
+    }
+
+    /// Opt-in: Turbo may delete ~/Library/Developer/Xcode/DerivedData (default off — avoids Xcode/VS Code friction).
+    @Published var clearDerivedDataOnTurbo: Bool {
+        didSet { UserDefaults.standard.set(clearDerivedDataOnTurbo, forKey: Keys.clearDerivedOnTurbo) }
     }
 
     var lastAutoFreeRAMAt: Date? {
@@ -45,6 +51,7 @@ final class FeatureSettingsStore: ObservableObject {
         }
         autoFreeRAMWhenCritical = d.bool(forKey: Keys.autoFreeRAM)
         historyCollectionPaused = d.bool(forKey: Keys.historyPaused)
+        clearDerivedDataOnTurbo = d.bool(forKey: Keys.clearDerivedOnTurbo)
     }
 
     func canAutoFreeRAMNow() -> Bool {

@@ -1,59 +1,27 @@
 import Foundation
 
 actor SystemCleaner {
-    /// Exact folder names OR prefix matches under ~/Library/Caches (safe allow-list only).
-    private let allowedExact: Set<String> = [
-        "Homebrew",
-        "pip",
-        "CocoaPods",
-        "GeoServices",
-        "com.apple.helpd",
-        "com.spotify.client",
-        "com.docker.docker",
-        "com.microsoft.VSCode",
-        "com.google.Chrome",
-        "org.mozilla.firefox",
-        "com.apple.Safari",
-        "com.apple.Music",
-        "com.apple.maps"
+    /// Never wipe these top-level ~/Library/Caches folders (accounts / sync / secrets).
+    private let blockedCacheNames: [String] = [
+        "CloudDocs", "CloudKit", "FamilyCircle", "accountsd",
+        "Keychain", "Cookies", "Credentials", "Passwords",
+        "com.apple.Safari.SafeBrowsing", "com.apple.findmy",
+        "com.apple.HomeKit", "com.apple.MobileSMS",
+        "com.apple.AddressBook", "com.apple.bird",
+        "com.apple.nsurlsessiond", "com.apple.akd"
     ]
-
-    private let allowedPrefixes: [String] = [
-        "com.apple.Safari",
-        "com.apple.WebKit",
-        "com.google.Chrome",
-        "com.spotify.",
-        "com.docker.",
-        "com.microsoft.VSCode",
-        "org.mozilla.firefox",
-        "Homebrew"
-    ]
-
-    private let blockedSubstrings: [String] = [
-        "CloudDocs",
-        "FamilyCircle",
-        "accountsd",
-        "Keychain",
-        "Cookies",
-        "Credentials",
-        "CloudKit",
-        "Passwords"
-    ]
-
-    private let maxBytesToDelete: UInt64 = 2 * 1024 * 1024 * 1024
-    private let maxFiles = 8_000
 
     func runDeepClean() async -> CleanResult {
         let cacheBytes = await clearSafeCaches()
         AppLog.cleaner.info("Cache clean freed \(cacheBytes, privacy: .public) bytes")
         let dns = await flushDNS()
         AppLog.cleaner.info("DNS flush ok=\(dns, privacy: .public)")
-        let docker = await pruneDockerVolumes()
+        let docker = await pruneDockerUnused()
         let dockerMsg = docker.message ?? "-"
-        AppLog.cleaner.info("Docker prune ok=\(docker.pruned, privacy: .public) msg=\(dockerMsg, privacy: .public)")
+        AppLog.cleaner.info("Docker prune ok=\(docker.pruned, privacy: .public) msg=\(dockerMsg, privacy: .public) bytes=\(docker.bytes, privacy: .public)")
 
         return CleanResult(
-            cacheBytesFreed: cacheBytes,
+            cacheBytesFreed: cacheBytes + docker.bytes,
             dnsFlushed: dns,
             dockerPruned: docker.pruned,
             dockerMessage: docker.message
@@ -69,28 +37,22 @@ actor SystemCleaner {
         switch bucket {
         case .caches:
             let bytes = await clearSafeCaches()
+            AppLog.cleaner.info("StorageMap caches freed \(bytes, privacy: .public)")
             return CleanResult(cacheBytesFreed: bytes, dnsFlushed: false, dockerPruned: false, dockerMessage: nil)
         case .downloads:
-            let bytes = await clearDirectoryContents(
-                path: (NSHomeDirectory() as NSString).appendingPathComponent("Downloads"),
-                maxBytes: 4 * 1024 * 1024 * 1024,
-                maxFiles: 20_000,
-                skipNewerThan: 3600
-            )
+            let bytes = await clearOldDownloadJunk()
             return CleanResult(cacheBytesFreed: bytes, dnsFlushed: false, dockerPruned: false, dockerMessage: nil)
         case .derivedData:
             let path = (NSHomeDirectory() as NSString).appendingPathComponent("Library/Developer/Xcode/DerivedData")
-            let bytes = await clearDirectoryContents(
-                path: path,
-                maxBytes: 20 * 1024 * 1024 * 1024,
-                maxFiles: 100_000,
-                skipNewerThan: 30
-            )
-            return CleanResult(cacheBytesFreed: bytes, dnsFlushed: false, dockerPruned: false, dockerMessage: nil)
+            let before = CleanSafety.directoryOrFileSize(URL(fileURLWithPath: path))
+            let ok = await wipeDirectoryContents(path)
+            let after = CleanSafety.directoryOrFileSize(URL(fileURLWithPath: path))
+            let freed = before > after ? before - after : (ok ? before : 0)
+            return CleanResult(cacheBytesFreed: freed, dnsFlushed: false, dockerPruned: false, dockerMessage: nil)
         case .docker:
-            let docker = await pruneDockerVolumes()
+            let docker = await pruneDockerUnused()
             return CleanResult(
-                cacheBytesFreed: 0,
+                cacheBytesFreed: docker.bytes,
                 dnsFlushed: false,
                 dockerPruned: docker.pruned,
                 dockerMessage: docker.message
@@ -102,21 +64,187 @@ actor SystemCleaner {
         }
     }
 
-    private func clearDirectoryContents(
-        path: String,
-        maxBytes: UInt64,
-        maxFiles: Int,
-        skipNewerThan: TimeInterval
-    ) async -> UInt64 {
+    // MARK: - Caches (denylist + whole-folder wipe)
+
+    /// Wipe regenerable top-level cache folders. Shows ~GB in Storage Map; old allow-list only freed MBs.
+    func clearSafeCaches() async -> UInt64 {
         await withCheckedContinuation { cont in
-            DispatchQueue.global(qos: .utility).async {
-                let result = self.deleteContents(
-                    at: path,
-                    remainingBytes: maxBytes,
-                    remainingFiles: maxFiles,
-                    skipNewerThan: skipNewerThan
-                )
-                cont.resume(returning: result.bytes)
+            DispatchQueue.global(qos: .userInitiated).async {
+                let root = (NSHomeDirectory() as NSString).appendingPathComponent("Library/Caches")
+                let fm = FileManager.default
+                guard let children = try? fm.contentsOfDirectory(atPath: root) else {
+                    cont.resume(returning: 0)
+                    return
+                }
+
+                var freed: UInt64 = 0
+                var wiped = 0
+                for name in children {
+                    if name.hasPrefix(".") { continue }
+                    if self.isBlockedCache(name) { continue }
+                    if !self.isSafeToWipeCache(name) { continue }
+                    let path = (root as NSString).appendingPathComponent(name)
+                    guard CleanSafety.assertSafeToRemove(path: path) else { continue }
+                    guard !ProtectionGuard.isPathProtected(path) else { continue }
+
+                    // Prefer removing the whole top-level cache folder (apps recreate it).
+                    // Size after success keeps the wipe path fast (no double 80k-file walk).
+                    do {
+                        let size = Self.quickSize(path)
+                        try fm.removeItem(atPath: path)
+                        freed += size
+                        wiped += 1
+                    } catch {
+                        let before = Self.quickSize(path)
+                        let partial = self.deleteContentsBestEffort(at: path)
+                        let after = Self.quickSize(path)
+                        let gained = partial > 0 ? partial : (before > after ? before - after : 0)
+                        freed += gained
+                        if gained > 0 { wiped += 1 }
+                    }
+                }
+                AppLog.cleaner.info("clearSafeCaches wipedFolders=\(wiped) freed=\(freed)")
+                cont.resume(returning: freed)
+            }
+        }
+    }
+
+    /// Estimate what Clean would free (for Storage Map honesty).
+    nonisolated static func estimateReclaimableCaches() -> UInt64 {
+        let root = (NSHomeDirectory() as NSString).appendingPathComponent("Library/Caches")
+        let fm = FileManager.default
+        guard let children = try? fm.contentsOfDirectory(atPath: root) else { return 0 }
+        var total: UInt64 = 0
+        for name in children {
+            if name.hasPrefix(".") { continue }
+            guard Self.isSafeCacheName(name) else { continue }
+            let path = (root as NSString).appendingPathComponent(name)
+            if ProtectionGuard.isPathProtected(path) { continue }
+            total += CleanSafety.directoryOrFileSize(URL(fileURLWithPath: path))
+        }
+        return total
+    }
+
+    nonisolated static func isSafeCacheName(_ name: String) -> Bool {
+        let blocked = [
+            "CloudDocs", "CloudKit", "FamilyCircle", "accountsd",
+            "Keychain", "Cookies", "Credentials", "Passwords",
+            "com.apple.Safari.SafeBrowsing", "com.apple.findmy",
+            "com.apple.HomeKit", "com.apple.MobileSMS",
+            "com.apple.AddressBook", "com.apple.bird",
+            "com.apple.nsurlsessiond", "com.apple.akd"
+        ]
+        if blocked.contains(where: { name.localizedCaseInsensitiveContains($0) }) { return false }
+        if !name.hasPrefix("com.apple.") { return true }
+        let appleOK = [
+            "com.apple.Safari", "com.apple.WebKit", "com.apple.dt.", "com.apple.Music",
+            "com.apple.TV", "com.apple.helpd", "com.apple.maps", "com.apple.iTunes",
+            "com.apple.AppStore", "com.apple.installer"
+        ]
+        return appleOK.contains { name.hasPrefix($0) }
+    }
+
+    private func isBlockedCache(_ name: String) -> Bool {
+        blockedCacheNames.contains { name.localizedCaseInsensitiveContains($0) }
+    }
+
+    private func isSafeToWipeCache(_ name: String) -> Bool {
+        Self.isSafeCacheName(name)
+    }
+
+    private func deleteContentsBestEffort(at path: String) -> UInt64 {
+        let fm = FileManager.default
+        guard let children = try? fm.contentsOfDirectory(atPath: path) else { return 0 }
+        var freed: UInt64 = 0
+        for name in children {
+            let full = (path as NSString).appendingPathComponent(name)
+            let size = Self.quickSize(full)
+            do {
+                try fm.removeItem(atPath: full)
+                freed += size
+            } catch {
+                continue
+            }
+        }
+        return freed
+    }
+
+    /// Fast bounded size — enough for progress accounting without freezing the UI.
+    private static func quickSize(_ path: String) -> UInt64 {
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: path, isDirectory: &isDir) else { return 0 }
+        if !isDir.boolValue {
+            return (try? fm.attributesOfItem(atPath: path)[.size] as? UInt64) ?? 0
+        }
+        guard let enumerator = fm.enumerator(
+            at: URL(fileURLWithPath: path),
+            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else { return 0 }
+        var total: UInt64 = 0
+        var n = 0
+        while let item = enumerator.nextObject() as? URL {
+            n += 1
+            if n > 8_000 { break }
+            guard let vals = try? item.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+                  vals.isRegularFile == true,
+                  let size = vals.fileSize else { continue }
+            total += UInt64(size)
+        }
+        return total
+    }
+
+    private func wipeDirectoryContents(_ path: String) async -> Bool {
+        await withCheckedContinuation { cont in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let fm = FileManager.default
+                guard fm.fileExists(atPath: path) else {
+                    cont.resume(returning: false)
+                    return
+                }
+                guard let children = try? fm.contentsOfDirectory(atPath: path) else {
+                    cont.resume(returning: false)
+                    return
+                }
+                for name in children where !name.hasPrefix(".") {
+                    let full = (path as NSString).appendingPathComponent(name)
+                    try? fm.removeItem(atPath: full)
+                }
+                cont.resume(returning: true)
+            }
+        }
+    }
+
+    // MARK: - Downloads (old installers only — not whole folder)
+
+    private func clearOldDownloadJunk() async -> UInt64 {
+        await withCheckedContinuation { cont in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let root = (NSHomeDirectory() as NSString).appendingPathComponent("Downloads")
+                let fm = FileManager.default
+                let exts = ["dmg", "pkg", "zip", "iso", "tar", "gz", "tgz", "rar", "7z", "ipa", "apk"]
+                let cutoff = Date().addingTimeInterval(-7 * 24 * 3600)
+                guard let children = try? fm.contentsOfDirectory(atPath: root) else {
+                    cont.resume(returning: 0)
+                    return
+                }
+                var freed: UInt64 = 0
+                for name in children {
+                    let ext = (name as NSString).pathExtension.lowercased()
+                    guard exts.contains(ext) else { continue }
+                    let full = (root as NSString).appendingPathComponent(name)
+                    guard let attrs = try? fm.attributesOfItem(atPath: full),
+                          let modified = attrs[.modificationDate] as? Date,
+                          modified < cutoff else { continue }
+                    guard CleanSafety.assertSafeToRemove(path: full) else { continue }
+                    let size = CleanSafety.directoryOrFileSize(URL(fileURLWithPath: full))
+                    do {
+                        try fm.removeItem(atPath: full)
+                        freed += size
+                    } catch { continue }
+                }
+                cont.resume(returning: freed)
             }
         }
     }
@@ -132,7 +260,7 @@ actor SystemCleaner {
                 var freed: UInt64 = 0
                 for name in children {
                     let full = (path as NSString).appendingPathComponent(name)
-                    let size = Self.itemSize(full)
+                    let size = CleanSafety.directoryOrFileSize(URL(fileURLWithPath: full))
                     try? fm.removeItem(atPath: full)
                     freed += size
                 }
@@ -141,15 +269,6 @@ actor SystemCleaner {
         }
     }
 
-    private static func itemSize(_ path: String) -> UInt64 {
-        let fm = FileManager.default
-        guard let attrs = try? fm.attributesOfItem(atPath: path) else { return 0 }
-        if let size = attrs[.size] as? UInt64 { return size }
-        return 0
-    }
-
-    /// Runs `purge` to drop file-backed disk cache pages (needs admin).
-    /// Note: macOS will refill cache as you use apps — high RAM use alone is normal.
     func purgeInactiveMemory() async -> CleanResult {
         let before = MachMemory.sample()?.availableBytes ?? 0
         let result = await PrivilegedRunner.run(
@@ -158,7 +277,6 @@ actor SystemCleaner {
             needsAdmin: true,
             reason: "Free RAM — purge reclaimable disk cache."
         )
-        // Give kernel a moment to reclaim
         try? await Task.sleep(nanoseconds: 700_000_000)
         let after = MachMemory.sample()?.availableBytes ?? before
         return CleanResult(
@@ -172,88 +290,7 @@ actor SystemCleaner {
         )
     }
 
-    private func clearSafeCaches() async -> UInt64 {
-        await withCheckedContinuation { cont in
-            DispatchQueue.global(qos: .utility).async {
-                let root = (NSHomeDirectory() as NSString).appendingPathComponent("Library/Caches")
-                let fm = FileManager.default
-                guard let children = try? fm.contentsOfDirectory(atPath: root) else {
-                    cont.resume(returning: 0)
-                    return
-                }
-
-                var freed: UInt64 = 0
-                var files = 0
-
-                for name in children {
-                    if freed >= self.maxBytesToDelete || files >= self.maxFiles { break }
-                    guard self.isAllowedCache(name) else { continue }
-                    let path = (root as NSString).appendingPathComponent(name)
-                    let result = self.deleteContents(
-                        at: path,
-                        remainingBytes: self.maxBytesToDelete - freed,
-                        remainingFiles: self.maxFiles - files,
-                        skipNewerThan: 60
-                    )
-                    freed += result.bytes
-                    files += result.files
-                }
-
-                cont.resume(returning: freed)
-            }
-        }
-    }
-
-    private func isAllowedCache(_ name: String) -> Bool {
-        for b in blockedSubstrings where name.localizedCaseInsensitiveContains(b) {
-            return false
-        }
-        if allowedExact.contains(name) { return true }
-        for prefix in allowedPrefixes where name.hasPrefix(prefix) {
-            return true
-        }
-        return false
-    }
-
-    private func deleteContents(
-        at path: String,
-        remainingBytes: UInt64,
-        remainingFiles: Int,
-        skipNewerThan: TimeInterval
-    ) -> (bytes: UInt64, files: Int) {
-        let fm = FileManager.default
-        var bytes: UInt64 = 0
-        var files = 0
-
-        guard let enumerator = fm.enumerator(atPath: path) else { return (0, 0) }
-        var toDelete: [String] = []
-
-        while let relative = enumerator.nextObject() as? String {
-            if files >= remainingFiles || bytes >= remainingBytes { break }
-            let full = (path as NSString).appendingPathComponent(relative)
-            var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: full, isDirectory: &isDir), !isDir.boolValue else { continue }
-            if let attrs = try? fm.attributesOfItem(atPath: full) {
-                if let modified = attrs[.modificationDate] as? Date,
-                   Date().timeIntervalSince(modified) < skipNewerThan {
-                    continue
-                }
-                if let size = attrs[.size] as? UInt64 {
-                    bytes += size
-                }
-            }
-            files += 1
-            toDelete.append(full)
-        }
-
-        for file in toDelete {
-            try? fm.removeItem(atPath: file)
-        }
-        return (bytes, files)
-    }
-
     private func flushDNS() async -> Bool {
-        // One elevation for both steps — avoids a second password sheet mid-clean.
         let result = await PrivilegedRunner.runAdminScript(
             "/usr/bin/dscacheutil -flushcache; /usr/bin/killall -HUP mDNSResponder",
             reason: "Flush DNS cache."
@@ -261,20 +298,102 @@ actor SystemCleaner {
         return result.ok
     }
 
-    private func pruneDockerVolumes() async -> (pruned: Bool, message: String?) {
+    // MARK: - Docker (unused data, not only dangling volumes)
+
+    private func pruneDockerUnused() async -> (pruned: Bool, message: String?, bytes: UInt64) {
         guard let dockerPath = resolveDocker() else {
-            return (false, "Docker not found")
+            return (false, "Docker not found", 0)
         }
-        // Only prune dangling volumes — never wipe named volumes in use
-        let result = await PrivilegedRunner.run(
+
+        // Capture reclaimable estimate before prune.
+        let beforeDF = await PrivilegedRunner.run(
+            dockerPath,
+            args: ["system", "df"],
+            needsAdmin: false
+        )
+        let beforeReclaim = Self.parseDockerReclaimable(beforeDF.output)
+
+        // Safe unused cleanup: stopped containers, dangling images, unused networks, build cache, dangling volumes.
+        // Does NOT remove named volumes in use or running containers' images when still referenced as "used".
+        let prune = await PrivilegedRunner.run(
+            dockerPath,
+            args: ["system", "prune", "-af"],
+            needsAdmin: false
+        )
+        let builder = await PrivilegedRunner.run(
+            dockerPath,
+            args: ["builder", "prune", "-af"],
+            needsAdmin: false
+        )
+        let volumes = await PrivilegedRunner.run(
             dockerPath,
             args: ["volume", "prune", "-f"],
             needsAdmin: false
         )
-        if result.ok {
-            return (true, nil)
+
+        let afterDF = await PrivilegedRunner.run(
+            dockerPath,
+            args: ["system", "df"],
+            needsAdmin: false
+        )
+        let afterReclaim = Self.parseDockerReclaimable(afterDF.output)
+        let reclaimedFromReport = Self.parseDockerReclaimedLine(prune.output)
+            + Self.parseDockerReclaimedLine(builder.output)
+            + Self.parseDockerReclaimedLine(volumes.output)
+
+        let freed: UInt64
+        if reclaimedFromReport > 0 {
+            freed = reclaimedFromReport
+        } else if beforeReclaim > afterReclaim {
+            freed = beforeReclaim - afterReclaim
+        } else {
+            freed = 0
         }
-        return (false, "Docker prune skipped")
+
+        let ok = prune.ok || builder.ok || volumes.ok
+        let msg: String?
+        if ok {
+            msg = freed > 0 ? "Reclaimed \(CleanResult.formatBytes(freed))" : "Pruned unused Docker data"
+        } else {
+            msg = "Docker prune skipped — is Docker Desktop running?"
+        }
+        return (ok, msg, freed)
+    }
+
+    /// Sum RECLAIMABLE column from `docker system df`.
+    nonisolated static func parseDockerReclaimable(_ text: String) -> UInt64 {
+        var total: UInt64 = 0
+        for line in text.split(separator: "\n") {
+            // RECLAIMABLE is usually the last column, e.g. "1.2GB (50%)" or "0B"
+            let parts = line.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+            guard parts.count >= 4, parts[0] != "TYPE" else { continue }
+            if let token = parts.last(where: { $0.uppercased().contains("B") }) {
+                total += parseSizeToken(token)
+            }
+        }
+        return total
+    }
+
+    nonisolated static func parseDockerReclaimedLine(_ text: String) -> UInt64 {
+        // "Total reclaimed space: 1.234GB"
+        for line in text.split(separator: "\n") {
+            let lower = line.lowercased()
+            guard lower.contains("reclaimed") else { continue }
+            if let range = line.range(of: #"[0-9]+(\.[0-9]+)?\s*[KMGT]?B"#, options: .regularExpression) {
+                return parseSizeToken(String(line[range]))
+            }
+        }
+        return 0
+    }
+
+    nonisolated static func parseSizeToken(_ token: String) -> UInt64 {
+        let upper = token.uppercased().replacingOccurrences(of: ",", with: "")
+        let num = Double(upper.filter { $0.isNumber || $0 == "." }) ?? 0
+        if upper.contains("TB") { return UInt64(num * 1_099_511_627_776) }
+        if upper.contains("GB") { return UInt64(num * 1_073_741_824) }
+        if upper.contains("MB") { return UInt64(num * 1_048_576) }
+        if upper.contains("KB") { return UInt64(num * 1024) }
+        return UInt64(num)
     }
 
     private func resolveDocker() -> String? {

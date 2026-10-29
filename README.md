@@ -4,11 +4,11 @@ Premium macOS **menu-bar** optimizer — live metrics, Turbo Mode, Smart Watchdo
 
 ## Download & install
 
-**Latest release:** [FGMacOS Optimizer v1.10.0](https://github.com/FaizGusion00/fgmacos-optimizer/releases/tag/v1.10.0)
+**Latest release:** [FGMacOS Optimizer v1.10.3](https://github.com/FaizGusion00/fgmacos-optimizer/releases/tag/v1.10.3)
 
 | File | What to do |
 |------|------------|
-| **[FGMacOS-Optimizer-v1.10.0.dmg](https://github.com/FaizGusion00/fgmacos-optimizer/releases/download/v1.10.0/FGMacOS-Optimizer-v1.10.0.dmg)** | Open DMG → baca **BACA-INI.txt** → right-click **00-INSTALL.command** → Open |
+| **[FGMacOS-Optimizer-v1.10.3.dmg](https://github.com/FaizGusion00/fgmacos-optimizer/releases/download/v1.10.3/FGMacOS-Optimizer-v1.10.3.dmg)** | Open DMG → baca **BACA-INI.txt** → right-click **00-INSTALL.command** → Open |
 
 ### “Apple could not verify…” / button **Done** only
 Gatekeeper (unsigned free app). **Not malware.** After you click Done once:
