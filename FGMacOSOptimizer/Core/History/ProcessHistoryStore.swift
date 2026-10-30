@@ -23,8 +23,14 @@ final class ProcessHistoryStore: ObservableObject {
 
     private var samples: [ProcessHistorySample] = []
     private let maxSamples = 8_000
+    /// Amortised cap: trim once we're this far over, not on every tick.
+    private let capSlack = 400
     private let fileURL: URL
     private let retention: TimeInterval = 24 * 60 * 60
+    /// Persist at most every 5 min (was: every 40 samples, which became every tick at the cap).
+    private let persistInterval: TimeInterval = 300
+    private var lastPersist = Date()
+    private var dirty = false
 
     init() {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -46,21 +52,48 @@ final class ProcessHistoryStore: ObservableObject {
                 at: now
             ))
         }
-        prune()
-        if samples.count % 40 == 0 {
-            persist()
-            recompute()
+        dirty = true
+        if samples.count > maxSamples + capSlack {
+            samples.removeFirst(samples.count - maxSamples)
+        }
+        if now.timeIntervalSince(lastPersist) >= persistInterval {
+            flush()
         }
     }
 
     func clear() {
         samples.removeAll()
-        persist()
+        dirty = true
+        flush(sync: true)
+    }
+
+    /// Writes to disk (off-main unless `sync`) and refreshes the Hall of Fame.
+    func flush(sync: Bool = false) {
+        guard dirty else { return }
+        prune()
+        dirty = false
+        lastPersist = Date()
+        let snapshot = samples
+        let url = fileURL
+        if sync {
+            Self.write(snapshot, to: url)
+        } else {
+            Task.detached(priority: .utility) {
+                Self.write(snapshot, to: url)
+            }
+        }
         recompute()
     }
 
+    nonisolated private static func write(_ samples: [ProcessHistorySample], to url: URL) {
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .iso8601
+        if let data = try? enc.encode(samples) {
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
     func recompute() {
-        prune()
         var agg: [String: (name: String, bid: String?, score: Double, n: Int)] = [:]
         for s in samples {
             let key = s.bundleID ?? s.name
@@ -77,20 +110,16 @@ final class ProcessHistoryStore: ObservableObject {
         .map { $0 }
     }
 
+    /// Samples are appended chronologically, so retention is a prefix drop.
     private func prune() {
         let cutoff = Date().addingTimeInterval(-retention)
-        samples.removeAll { $0.at < cutoff }
-        if samples.count > maxSamples {
-            samples = Array(samples.suffix(maxSamples))
+        if let firstKept = samples.firstIndex(where: { $0.at >= cutoff }) {
+            if firstKept > 0 { samples.removeFirst(firstKept) }
+        } else if !samples.isEmpty {
+            samples.removeAll(keepingCapacity: true)
         }
-    }
-
-    private func persist() {
-        prune()
-        let enc = JSONEncoder()
-        enc.dateEncodingStrategy = .iso8601
-        if let data = try? enc.encode(samples) {
-            try? data.write(to: fileURL, options: .atomic)
+        if samples.count > maxSamples {
+            samples.removeFirst(samples.count - maxSamples)
         }
     }
 

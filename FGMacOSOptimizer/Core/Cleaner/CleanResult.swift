@@ -8,6 +8,9 @@ struct CleanResult: Equatable, Sendable {
     var memoryPurged: Bool = false
     var availableBefore: UInt64 = 0
     var availableAfter: UInt64 = 0
+    var timeMachineStopped: Bool = false
+    var spotlightExcluded: Int = 0
+    var logsBytesFreed: UInt64 = 0
 
     var summary: String {
         var parts: [String] = []
@@ -19,12 +22,15 @@ struct CleanResult: Equatable, Sendable {
                 parts.append("Disk cache purged")
             }
         }
-        if cacheBytesFreed > 0 {
-            parts.append("Caches \(Self.formatBytes(cacheBytesFreed))")
-        } else if !memoryPurged {
+        let diskFreed = cacheBytesFreed &+ logsBytesFreed
+        if diskFreed > 0 {
+            parts.append("Disk \(Self.formatBytes(diskFreed))")
+        } else if !memoryPurged && spotlightExcluded == 0 && !timeMachineStopped {
             parts.append("Caches scanned")
         }
         if dnsFlushed { parts.append("DNS flushed") }
+        if timeMachineStopped { parts.append("Time Machine paused") }
+        if spotlightExcluded > 0 { parts.append("\(spotlightExcluded) heavy folders de-indexed") }
         if dockerPruned {
             parts.append(dockerMessage ?? "Docker unused data pruned")
         } else if let dockerMessage, !memoryPurged {

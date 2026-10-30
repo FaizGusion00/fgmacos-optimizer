@@ -4,9 +4,25 @@ import SwiftUI
 @MainActor
 enum CleanerWindowController {
     private static var window: NSWindow?
+    private static var closeObserver: NSObjectProtocol?
+
+    static var isVisible: Bool {
+        window?.isVisible == true
+    }
+
+    /// True while the window exists, even miniaturized — on-demand quit must wait for it.
+    static var exists: Bool {
+        window != nil
+    }
+
+    #if DEBUG
+    static var debugWindow: NSWindow? { window }
+    #endif
 
     static func show(showIntroIfNeeded: Bool = false) {
-        if let window, window.isVisible {
+        if let window {
+            // Visible or miniaturized: bring the existing window back, never a second one.
+            if window.isMiniaturized { window.deminiaturize(nil) }
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             Task { await CleanerStore.shared.refresh() }
@@ -39,6 +55,20 @@ enum CleanerWindowController {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         Self.window = window
+
+        if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+        closeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+                Self.closeObserver = nil
+                Self.window = nil
+                NotificationCenter.default.post(name: .fgRequestOnDemandQuit, object: "cleaner")
+            }
+        }
 
         Task {
             await CleanerStore.shared.refresh()

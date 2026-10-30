@@ -15,36 +15,25 @@ struct CircularGauge: View {
     var body: some View {
         VStack(spacing: 10) {
             ZStack {
-                // Soft glow
                 Circle()
-                    .fill(TurboTheme.bandColor(band).opacity(0.12))
-                    .blur(radius: 10)
-                    .scaleEffect(1.05)
+                    .fill(TurboTheme.bandColor(band).opacity(0.10))
 
                 Circle()
                     .stroke(Color.primary.opacity(0.07), lineWidth: 9)
 
+                // Solid stroke — AngularGradient/conic was burning ~25% CPU redrawing offscreen.
                 Circle()
                     .trim(from: 0, to: animated ? clamped : 0)
                     .stroke(
-                        AngularGradient(
-                            colors: [
-                                TurboTheme.bandColor(band).opacity(0.55),
-                                TurboTheme.bandColor(band),
-                                TurboTheme.bandColor(band).opacity(0.9)
-                            ],
-                            center: .center
-                        ),
+                        TurboTheme.bandColor(band),
                         style: StrokeStyle(lineWidth: 9, lineCap: .round)
                     )
                     .rotationEffect(.degrees(-90))
-                    .shadow(color: TurboTheme.bandColor(band).opacity(0.35), radius: 4, y: 1)
 
                 VStack(spacing: 3) {
                     Image(systemName: symbol)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(TurboTheme.bandColor(band))
-                        .fgSymbolPulse(isActive: band == .bad)
 
                     Text(centerText)
                         .font(.system(size: 14, weight: .bold, design: .rounded))

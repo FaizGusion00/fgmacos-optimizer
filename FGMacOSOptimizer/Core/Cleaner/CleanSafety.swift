@@ -81,20 +81,8 @@ enum CleanSafety {
             let attrs = try? fm.attributesOfItem(atPath: url.path)
             return attrs?[.size] as? UInt64 ?? 0
         }
-        guard let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey], options: [.skipsHiddenFiles]) else {
-            return 0
-        }
-        var total: UInt64 = 0
-        var n = 0
-        while let item = enumerator.nextObject() as? URL {
-            n += 1
-            if n > 80_000 { break }
-            guard let vals = try? item.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
-                  vals.isRegularFile == true,
-                  let size = vals.fileSize else { continue }
-            total += UInt64(size)
-        }
-        return total
+        // 80k files or 15 s — scans stay responsive even on a pathological tree.
+        return BoundedSizeWalk.size(atPath: url.path, maxFiles: 80_000, budget: 15, skipPackages: false).bytes
     }
 
     static func formatBytes(_ bytes: UInt64) -> String {

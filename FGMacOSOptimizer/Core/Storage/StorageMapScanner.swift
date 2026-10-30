@@ -87,21 +87,17 @@ actor StorageMapScanner {
     }
 
     private func measureCaches() async -> StorageBucketSize {
-        await withCheckedContinuation { cont in
-            DispatchQueue.global(qos: .utility).async {
-                let root = (NSHomeDirectory() as NSString).appendingPathComponent("Library/Caches")
-                let sized = Self.sizedCacheBuckets(root: root)
-                cont.resume(returning: StorageBucketSize(
-                    bucket: .caches,
-                    bytes: sized.total,
-                    reclaimableBytes: sized.reclaimable,
-                    detail: sized.reclaimable > 0
-                        ? "~/Library/Caches · \(CleanResult.formatBytes(sized.reclaimable)) safe to clean"
-                        : "~/Library/Caches",
-                    isScanning: false
-                ))
-            }
-        }
+        let root = (NSHomeDirectory() as NSString).appendingPathComponent("Library/Caches")
+        let sized = await Self.sizedCacheBuckets(root: root)
+        return StorageBucketSize(
+            bucket: .caches,
+            bytes: sized.total,
+            reclaimableBytes: sized.reclaimable,
+            detail: sized.reclaimable > 0
+                ? "~/Library/Caches · \(CleanResult.formatBytes(sized.reclaimable)) safe to clean"
+                : "~/Library/Caches",
+            isScanning: false
+        )
     }
 
     private func measurePath(
@@ -110,18 +106,16 @@ actor StorageMapScanner {
         detail: String,
         reclaimSameAsTotal: Bool
     ) async -> StorageBucketSize {
-        await withCheckedContinuation { cont in
-            DispatchQueue.global(qos: .utility).async {
-                let bytes = Self.fastDirectorySize(path, maxFiles: 25_000)
-                cont.resume(returning: StorageBucketSize(
+        // 25k files or 6 s, whichever first — a huge or stalled folder must not stall the map.
+        let walk = await BoundedSizeWalk.sizeWithTimeout(atPath: path, maxFiles: 25_000, budget: 6)
+        let bytes = walk.bytes
+        return StorageBucketSize(
                     bucket: bucket,
                     bytes: bytes,
                     reclaimableBytes: reclaimSameAsTotal ? bytes : 0,
-                    detail: detail,
+                    detail: walk.partial ? "\(detail) · partial scan (large or slow folder)" : detail,
                     isScanning: false
-                ))
-            }
-        }
+                )
     }
 
     private func measureDocker() async -> StorageBucketSize {
@@ -150,49 +144,24 @@ actor StorageMapScanner {
         }
     }
 
-    /// One pass: total + reclaimable for ~/Library/Caches (no double walk).
-    private static func sizedCacheBuckets(root: String) -> (total: UInt64, reclaimable: UInt64) {
+    /// One pass: total + reclaimable for ~/Library/Caches (no double walk). Whole pass ≤ ~20 s.
+    private static func sizedCacheBuckets(root: String) async -> (total: UInt64, reclaimable: UInt64) {
         let fm = FileManager.default
         guard let children = try? fm.contentsOfDirectory(atPath: root) else { return (0, 0) }
         var total: UInt64 = 0
         var reclaimable: UInt64 = 0
+        let overall = Date().addingTimeInterval(20)
         for name in children {
             if name.hasPrefix(".") { continue }
+            if Date() >= overall { break }
             let path = (root as NSString).appendingPathComponent(name)
-            let size = fastDirectorySize(path, maxFiles: 12_000)
+            let size = await BoundedSizeWalk.sizeWithTimeout(atPath: path, maxFiles: 12_000, budget: 3).bytes
             total += size
             if SystemCleaner.isSafeCacheName(name), !ProtectionGuard.isPathProtected(path) {
                 reclaimable += size
             }
         }
         return (total, reclaimable)
-    }
-
-    /// Bounded size walk — keeps Storage Map snappy on large trees.
-    private static func fastDirectorySize(_ path: String, maxFiles: Int) -> UInt64 {
-        let fm = FileManager.default
-        var isDir: ObjCBool = false
-        guard fm.fileExists(atPath: path, isDirectory: &isDir) else { return 0 }
-        if !isDir.boolValue {
-            return (try? fm.attributesOfItem(atPath: path)[.size] as? UInt64) ?? 0
-        }
-        guard let enumerator = fm.enumerator(
-            at: URL(fileURLWithPath: path),
-            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        ) else { return 0 }
-
-        var total: UInt64 = 0
-        var n = 0
-        while let item = enumerator.nextObject() as? URL {
-            n += 1
-            if n > maxFiles { break }
-            guard let vals = try? item.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
-                  vals.isRegularFile == true,
-                  let size = vals.fileSize else { continue }
-            total += UInt64(size)
-        }
-        return total
     }
 
     private static func resolveDocker() -> String? {

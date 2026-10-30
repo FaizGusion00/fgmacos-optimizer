@@ -30,29 +30,50 @@ enum FocusProfile: String, CaseIterable, Identifiable, Sendable {
 }
 
 /// Curated leftovers safe to quit during Meeting/Gaming (never whitelist / Apple).
+/// Conferencing apps are a separate set: Meeting focus must never quit the meeting itself.
 enum LeftoverApps {
-    static let bundleIDs: Set<String> = [
+    static let conferencingBundleIDs: Set<String> = [
         "us.zoom.xos",
-        "com.tinyspeck.slackmacgap",
         "com.microsoft.teams2",
         "com.microsoft.teams",
         "com.hnc.Discord",
-        "com.apple.FaceTime"
+        "com.apple.FaceTime",
+        "com.cisco.webexmeetingsapp",
+        "Cisco-Systems.Spark"
     ]
 
-    static let nameHints: [String] = [
+    static let conferencingNameHints: [String] = [
+        "Zoom", "zoom.us", "Microsoft Teams", "Discord", "Webex", "FaceTime"
+    ]
+
+    static let helperBundleIDs: Set<String> = [
+        "com.tinyspeck.slackmacgap"
+    ]
+
+    static let helperNameHints: [String] = [
         "Google Chrome Helper",
         "Chrome Helper (Renderer)",
         "Slack Helper",
-        "Zoom",
-        "zoom.us",
-        "Microsoft Teams",
         "Discord Helper"
     ]
 
+    static var bundleIDs: Set<String> { conferencingBundleIDs.union(helperBundleIDs) }
+    static var nameHints: [String] { conferencingNameHints + helperNameHints }
+
+    /// Anything in either set (explicit "Quit leftovers" action, Gaming focus).
     static func matches(bundleID: String?, name: String) -> Bool {
-        if let bundleID, bundleIDs.contains(bundleID) { return true }
-        for hint in nameHints where name.localizedCaseInsensitiveContains(hint) {
+        matchesConferencing(bundleID: bundleID, name: name) || matchesHelpers(bundleID: bundleID, name: name)
+    }
+
+    static func matchesConferencing(bundleID: String?, name: String) -> Bool {
+        if let bundleID, conferencingBundleIDs.contains(bundleID) { return true }
+        return conferencingNameHints.contains { name.localizedCaseInsensitiveContains($0) }
+    }
+
+    /// Noisy helper processes only — safe during a meeting.
+    static func matchesHelpers(bundleID: String?, name: String) -> Bool {
+        if let bundleID, helperBundleIDs.contains(bundleID) { return true }
+        for hint in helperNameHints where name.localizedCaseInsensitiveContains(hint) {
             return true
         }
         // Chrome helpers only — not the main Chrome browser window process name alone.
@@ -67,7 +88,12 @@ final class FocusProfileEngine: ObservableObject {
     @Published private(set) var statusMessage: String?
 
     private let defaultsKey = "fg.focus.activeProfile"
-    private var enabledTurboForProfile = false
+    private let turboByProfileKey = "fg.focus.enabledTurboForProfile"
+    /// Persisted so "Focus off" after a relaunch still turns Soft Turbo back off.
+    private var enabledTurboForProfile: Bool {
+        get { UserDefaults.standard.bool(forKey: turboByProfileKey) }
+        set { UserDefaults.standard.set(newValue, forKey: turboByProfileKey) }
+    }
 
     init() {
         if let raw = UserDefaults.standard.string(forKey: defaultsKey),
@@ -88,39 +114,40 @@ final class FocusProfileEngine: ObservableObject {
 
         statusMessage = "Applying \(profile.title)…"
         var quitCount = 0
+        var lowPowerChanged = false
         let before = MachMemory.sample()?.availableBytes ?? 0
         var turboNote = "Turbo left alone"
 
         switch profile {
         case .meeting, .gaming:
             // Soft Turbo only (folder exclusions + stop TM) — never volume mdutil -a.
+            // Never wipe Derived Data from a Focus profile: that is only the Turbo button's
+            // explicitly confirmed path.
             if !turbo.isActive {
-                let clearDD = FeatureSettingsStore.shared.clearDerivedDataOnTurbo
-                let result = await turbo.activate(clearDerivedData: clearDD)
+                let result = await turbo.activate(clearDerivedData: false)
                 if result.error == nil {
                     enabledTurboForProfile = true
                     turboNote = "Soft Turbo on"
                 }
             } else {
-                enabledTurboForProfile = true
+                // The user turned Turbo on themselves — Focus off must not take it away.
                 turboNote = "Soft Turbo already on"
             }
             if profile == .meeting {
                 openFocusSettingsHint()
-                quitCount += await quitLeftovers(whitelist: whitelist, aggressive: false)
-                await PowerModeHelper.setLowPower(true, onlyOnBattery: true)
+                // Helpers only — never Zoom/Teams/FaceTime during a meeting.
+                quitCount += await quitLeftovers(whitelist: whitelist, aggressive: false, helpersOnly: true)
+                lowPowerChanged = await PowerModeHelper.setLowPower(true, onlyOnBattery: true)
             } else {
-                quitCount += await quitLeftovers(whitelist: whitelist, aggressive: true)
-                await PowerModeHelper.setLowPower(false, onlyOnBattery: false)
+                quitCount += await quitLeftovers(whitelist: whitelist, aggressive: true, helpersOnly: false)
+                lowPowerChanged = await PowerModeHelper.setLowPower(false, onlyOnBattery: false)
             }
         case .coding:
             // Do NOT activate Turbo — avoids Spotlight/DerivedData friction while coding in VS Code.
-            _ = await PrivilegedRunner.run(
-                "/usr/bin/tmutil",
-                args: ["stopbackup"],
-                needsAdmin: false
-            )
-            turboNote = "Coding · no Turbo (Spotlight untouched)"
+            let paused = await TimeMachineStatus.stopBackupIfRunning()
+            turboNote = paused
+                ? "Coding · no Turbo (Spotlight untouched) · backup paused"
+                : "Coding · no Turbo (Spotlight untouched)"
         case .off:
             break
         }
@@ -135,7 +162,7 @@ final class FocusProfileEngine: ObservableObject {
             availableAfter: after,
             processesQuit: quitCount,
             focusName: profile.title,
-            lowPowerChanged: profile == .meeting || profile == .gaming,
+            lowPowerChanged: lowPowerChanged,
             detail: turboNote
         )
     }
@@ -152,14 +179,17 @@ final class FocusProfileEngine: ObservableObject {
         return ActionReport(title: "Focus off", focusName: "Off", detail: "Soft Turbo cleared if Focus had enabled it")
     }
 
-    private func quitLeftovers(whitelist: WhitelistStore, aggressive: Bool) async -> Int {
+    private func quitLeftovers(whitelist: WhitelistStore, aggressive: Bool, helpersOnly: Bool) async -> Int {
         var quit = 0
         let apps = NSWorkspace.shared.runningApplications
         for app in apps {
             guard app.activationPolicy == .regular || aggressive else { continue }
             let name = app.localizedName ?? app.bundleURL?.lastPathComponent ?? "app"
             let bid = app.bundleIdentifier
-            guard LeftoverApps.matches(bundleID: bid, name: name) else { continue }
+            let matches = helpersOnly
+                ? LeftoverApps.matchesHelpers(bundleID: bid, name: name)
+                : LeftoverApps.matches(bundleID: bid, name: name)
+            guard matches else { continue }
             guard whitelist.isKillCandidate(bundleID: bid, name: name, runningApp: app) else { continue }
             _ = app.terminate()
             try? await Task.sleep(nanoseconds: 400_000_000)

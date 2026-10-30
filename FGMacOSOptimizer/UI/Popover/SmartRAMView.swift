@@ -32,7 +32,7 @@ struct SmartRAMView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Auto Free RAM when critical")
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    Text("Off by default · 30 min cooldown · one purge per trigger")
+                    Text("30 min cooldown · needs session unlock · or Quick Optimize")
                         .font(Design.Text.micro)
                         .foregroundStyle(.primary.opacity(0.72))
                 }

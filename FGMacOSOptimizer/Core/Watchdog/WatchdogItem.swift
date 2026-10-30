@@ -1,7 +1,7 @@
 import Foundation
 
 struct WatchdogItem: Identifiable, Equatable, Sendable {
-    enum Kind: Sendable {
+    enum Kind: Sendable, Hashable {
         case hog
         case elevated
         case hung

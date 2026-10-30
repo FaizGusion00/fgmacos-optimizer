@@ -24,8 +24,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.fgmacos.optimizer
         PRODUCT_NAME: FGMacOS Optimizer
-        MARKETING_VERSION: "1.10.3"
-        CURRENT_PROJECT_VERSION: "23"
+        MARKETING_VERSION: "1.11.0"
+        CURRENT_PROJECT_VERSION: "27"
         INFOPLIST_FILE: FGMacOSOptimizer/Resources/Info.plist
         CODE_SIGN_ENTITLEMENTS: FGMacOSOptimizer/Resources/FGMacOSOptimizer.entitlements
         SWIFT_OBJC_BRIDGING_HEADER: FGMacOSOptimizer/Resources/BridgingHeader.h
@@ -52,8 +52,8 @@ targets:
       properties:
         CFBundleName: FGMacOS Optimizer
         CFBundleDisplayName: FGMacOS Optimizer
-        CFBundleShortVersionString: "1.10.3"
-        CFBundleVersion: "23"
+        CFBundleShortVersionString: "1.11.0"
+        CFBundleVersion: "27"
         LSMinimumSystemVersion: "13.0"
         LSUIElement: true
         NSHighResolutionCapable: true
@@ -70,8 +70,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.fgmacos.optimizer.widget
         PRODUCT_NAME: FGOptimizerWidget
-        MARKETING_VERSION: "1.10.3"
-        CURRENT_PROJECT_VERSION: "23"
+        MARKETING_VERSION: "1.11.0"
+        CURRENT_PROJECT_VERSION: "27"
         INFOPLIST_FILE: FGOptimizerWidget/Info.plist
         CODE_SIGN_ENTITLEMENTS: FGOptimizerWidget/FGOptimizerWidget.entitlements
         CODE_SIGN_STYLE: Automatic
@@ -86,7 +86,7 @@ targets:
       path: FGOptimizerWidget/Info.plist
       properties:
         CFBundleDisplayName: FG Optimizer
-        CFBundleShortVersionString: "1.10.3"
-        CFBundleVersion: "23"
+        CFBundleShortVersionString: "1.11.0"
+        CFBundleVersion: "27"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension

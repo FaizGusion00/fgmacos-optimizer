@@ -11,6 +11,7 @@ final class FeatureSettingsStore: ObservableObject {
         static let lastAutoFreeRAM = "fg.settings.lastAutoFreeRAM"
         static let historyPaused = "fg.settings.historyPaused"
         static let clearDerivedOnTurbo = "fg.settings.clearDerivedDataOnTurbo"
+        static let keepInMenuBar = "fg.settings.keepInMenuBar.v1"
     }
 
     @Published var showMenuBarMeters: Bool {
@@ -28,6 +29,11 @@ final class FeatureSettingsStore: ObservableObject {
     /// Opt-in: Turbo may delete ~/Library/Developer/Xcode/DerivedData (default off — avoids Xcode/VS Code friction).
     @Published var clearDerivedDataOnTurbo: Bool {
         didSet { UserDefaults.standard.set(clearDerivedDataOnTurbo, forKey: Keys.clearDerivedOnTurbo) }
+    }
+
+    /// When false (default): quit when the menu popover closes and Cleaner isn’t open — no idle agent.
+    @Published var keepInMenuBar: Bool {
+        didSet { UserDefaults.standard.set(keepInMenuBar, forKey: Keys.keepInMenuBar) }
     }
 
     var lastAutoFreeRAMAt: Date? {
@@ -52,6 +58,12 @@ final class FeatureSettingsStore: ObservableObject {
         autoFreeRAMWhenCritical = d.bool(forKey: Keys.autoFreeRAM)
         historyCollectionPaused = d.bool(forKey: Keys.historyPaused)
         clearDerivedDataOnTurbo = d.bool(forKey: Keys.clearDerivedOnTurbo)
+        // Default OFF — open when you need it, don’t sit idle in the menu bar.
+        if d.object(forKey: Keys.keepInMenuBar) == nil {
+            keepInMenuBar = false
+        } else {
+            keepInMenuBar = d.bool(forKey: Keys.keepInMenuBar)
+        }
     }
 
     func canAutoFreeRAMNow() -> Bool {

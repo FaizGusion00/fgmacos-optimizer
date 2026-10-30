@@ -3,10 +3,14 @@ import SwiftUI
 struct StatusGaugesView: View {
     let metrics: SystemMetrics
     @Environment(\.colorScheme) private var colorScheme
-    @State private var pulse = false
 
     private var primary: Color { TurboTheme.primaryLabel(for: colorScheme) }
     private var secondary: Color { TurboTheme.secondaryLabel(for: colorScheme) }
+
+    private var ageLabel: String {
+        let age = max(0, Int(Date().timeIntervalSince(metrics.timestamp)))
+        return age < 3 ? "· just now" : "· \(age)s ago"
+    }
 
     var body: some View {
         VStack(spacing: 12) {
@@ -15,18 +19,14 @@ struct StatusGaugesView: View {
                     Circle()
                         .fill(TurboTheme.bandColor(.good))
                         .frame(width: 7, height: 7)
-                        .opacity(pulse ? 1 : 0.35)
-                        .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulse)
                     Text("LIVE")
                         .font(Design.Text.micro)
                         .foregroundStyle(primary)
-                    TimelineView(.periodic(from: .now, by: 1)) { context in
-                        let age = max(0, Int(context.date.timeIntervalSince(metrics.timestamp)))
-                        Text(age < 2 ? "· just now" : "· \(age)s ago")
-                            .font(Design.Text.micro)
-                            .foregroundStyle(secondary)
-                            .monospacedDigit()
-                    }
+                    // No TimelineView — it forced 1Hz SwiftUI invalidation forever while popover stayed loaded.
+                    Text(ageLabel)
+                        .font(Design.Text.micro)
+                        .foregroundStyle(secondary)
+                        .monospacedDigit()
                 }
                 Spacer()
                 if metrics.batteryHasBattery {
@@ -38,7 +38,6 @@ struct StatusGaugesView: View {
                     .foregroundStyle(primary)
                 }
             }
-            .onAppear { pulse = true }
 
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                 CircularGauge(
@@ -74,9 +73,6 @@ struct StatusGaugesView: View {
                     symbol: "thermometer"
                 )
             }
-            .animation(MotionTokens.gauge, value: metrics.cpuUsageFraction)
-            .animation(MotionTokens.gauge, value: metrics.memoryUsedFraction)
-            .animation(MotionTokens.gauge, value: metrics.diskUsedFraction)
 
             MemoryBreakdownBar(metrics: metrics)
             DiskBreakdownBar(metrics: metrics)
@@ -98,9 +94,8 @@ private struct MemoryBreakdownBar: View {
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color.primary.opacity(0.10))
                     Capsule()
-                        .fill(LinearGradient(colors: [Color(red: 0.25, green: 0.50, blue: 1.0), Color(red: 0.40, green: 0.70, blue: 1.0)], startPoint: .leading, endPoint: .trailing))
+                        .fill(Color(red: 0.30, green: 0.55, blue: 1.0))
                         .frame(width: max(6, geo.size.width * appPart))
-                        .animation(MotionTokens.gauge, value: appPart)
                 }
             }
             .frame(height: 6)
@@ -139,9 +134,8 @@ private struct DiskBreakdownBar: View {
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color.primary.opacity(0.10))
                     Capsule()
-                        .fill(LinearGradient(colors: [Color.orange.opacity(0.85), Color.orange], startPoint: .leading, endPoint: .trailing))
+                        .fill(Color.orange.opacity(0.9))
                         .frame(width: max(6, geo.size.width * usedPart))
-                        .animation(MotionTokens.gauge, value: usedPart)
                 }
             }
             .frame(height: 6)

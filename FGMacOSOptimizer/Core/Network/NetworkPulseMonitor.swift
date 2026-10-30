@@ -42,7 +42,17 @@ final class NetworkPulseMonitor: ObservableObject {
     }
 
     private func sampleCounters(first: Bool) {
-        let (inn, out) = Self.netstatTotals()
+        // `netstat` spawn + parse off the main thread; publish on main.
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let totals = Self.netstatTotals()
+            Task { @MainActor in
+                self?.applyCounters(totals, first: first)
+            }
+        }
+    }
+
+    private func applyCounters(_ totals: (UInt64, UInt64), first: Bool) {
+        let (inn, out) = totals
         let now = Date()
         if let lastAt = lastSampleAt, !first {
             let dt = now.timeIntervalSince(lastAt)
@@ -67,8 +77,8 @@ final class NetworkPulseMonitor: ObservableObject {
         }
     }
 
-    /// Sum Ibytes/Obytes from `netstat -ibn` (skip lo*).
-    private static func netstatTotals() -> (UInt64, UInt64) {
+    /// Sum Ibytes/Obytes from `netstat -ibn` (skip lo*). Runs on a utility queue.
+    nonisolated private static func netstatTotals() -> (UInt64, UInt64) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/netstat")
         process.arguments = ["-ibn"]
@@ -99,7 +109,7 @@ final class NetworkPulseMonitor: ObservableObject {
         return (bytesIn, bytesOut)
     }
 
-    private static func nettopTop() -> NetworkTalker? {
+    nonisolated private static func nettopTop() -> NetworkTalker? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/nettop")
         process.arguments = ["-P", "-L", "1", "-x"]

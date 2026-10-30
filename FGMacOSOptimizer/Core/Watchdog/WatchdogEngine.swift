@@ -30,7 +30,8 @@ final class WatchdogEngine: ObservableObject {
     private let hogStreakNeeded = 2
     private let hungGrace: TimeInterval = 45
     private let hungScanMinIntervalForeground: TimeInterval = 6
-    private let hungScanMinIntervalBackground: TimeInterval = 20
+    /// Closed popover: the Accessibility hung-probe touches every regular app — keep it rare.
+    private let hungScanMinIntervalBackground: TimeInterval = 90
     private let workQueue = DispatchQueue(label: "com.fgmacos.optimizer.watchdog", qos: .utility)
 
     static let killCategoryID = "FG_HOG_KILL"
@@ -38,7 +39,6 @@ final class WatchdogEngine: ObservableObject {
 
     func start(whitelist: WhitelistStore, sampler: MetricsSampler) {
         self.whitelist = whitelist
-        registerNotificationCategory()
         setForeground(false)
         tick()
     }
@@ -53,7 +53,8 @@ final class WatchdogEngine: ObservableObject {
 
     func setForeground(_ open: Bool) {
         isForeground = open
-        scanInterval = open ? 2.5 : 6.0
+        // Background must stay cheap — was 6s and still noticeable with process sampling.
+        scanInterval = open ? 3.0 : 20.0
         restartTimer()
     }
 
@@ -62,21 +63,8 @@ final class WatchdogEngine: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: scanInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
-    }
-
-    private func registerNotificationCategory() {
-        let kill = UNNotificationAction(
-            identifier: Self.killActionID,
-            title: "Kill Now",
-            options: [.destructive, .authenticationRequired]
-        )
-        let category = UNNotificationCategory(
-            identifier: Self.killCategoryID,
-            actions: [kill],
-            intentIdentifiers: [],
-            options: [.customDismissAction]
-        )
-        UNUserNotificationCenter.current().setNotificationCategories([category])
+        // Let the system coalesce our wakeups with others (idle CPU).
+        timer?.tolerance = scanInterval * 0.2
     }
 
     private func tick(forceHung: Bool = false, forceFull: Bool = false) {
@@ -240,12 +228,15 @@ final class WatchdogEngine: ObservableObject {
         guard item.pid > 1, item.pid != selfPID else { return }
 
         let app = NSRunningApplication(processIdentifier: item.pid)
-        if let whitelist {
-            guard whitelist.isKillCandidate(bundleID: item.bundleID ?? app?.bundleIdentifier, name: item.name, runningApp: app) else {
-                let n = item.name
-                AppLog.watchdog.error("Refused kill of protected process \(n, privacy: .public)")
-                return
-            }
+        guard let whitelist else {
+            // Never kill without the whitelist loaded — refuse rather than guess.
+            AppLog.watchdog.error("Refused kill: whitelist not ready")
+            return
+        }
+        guard whitelist.isKillCandidate(bundleID: item.bundleID ?? app?.bundleIdentifier, name: item.name, runningApp: app) else {
+            let n = item.name
+            AppLog.watchdog.error("Refused kill of protected process \(n, privacy: .public)")
+            return
         }
 
         let n = item.name
@@ -268,8 +259,9 @@ final class WatchdogEngine: ObservableObject {
         notifiedPIDs.remove(item.pid)
     }
 
-    func killAllHogs(whitelist: WhitelistStore) async {
-        let targets = items.filter { $0.kind == .hog || $0.kind == .elevated }
+    /// Kills only the listed kinds — callers pass exactly what their confirm dialog showed.
+    func killAllHogs(whitelist: WhitelistStore, kinds: Set<WatchdogItem.Kind> = [.hog]) async {
+        let targets = items.filter { kinds.contains($0.kind) }
         for item in targets {
             await forceKill(item: item)
         }

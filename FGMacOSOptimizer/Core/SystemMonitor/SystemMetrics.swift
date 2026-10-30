@@ -50,8 +50,26 @@ struct SystemMetrics: Equatable, Sendable {
         memoryWiredBytes &+ memoryActiveBytes &+ memoryCompressedBytes
     }
 
+    /// Swap above this is a warning sign (not critical on its own).
+    static let swapPressureBytes: UInt64 = 2 * 1024 * 1024 * 1024
+
     var hasSwapPressure: Bool {
-        swapUsedBytes > 512 * 1024 * 1024
+        swapUsedBytes > Self.swapPressureBytes
+    }
+
+    /// One urgent condition at a time, most actionable first: disk → memory → heat.
+    var urgentCondition: UrgentCondition? {
+        // `.zero` has disk 0 — never flag before the first real sample.
+        guard timestamp > .distantPast else { return nil }
+        if diskTotalBytes > 0 {
+            let freeRatio = Double(diskAvailableBytes) / Double(diskTotalBytes)
+            if freeRatio < 0.08 || diskAvailableBytes < 10 * 1_073_741_824 {
+                return .disk(freeBytes: diskAvailableBytes)
+            }
+        }
+        if memoryPressure == .critical { return .memory }
+        if thermalLevel.rawValue >= ThermalLevel.serious.rawValue { return .thermal(thermalLevel) }
+        return nil
     }
 
     var memoryPressureColorBand: MetricBand {
@@ -81,6 +99,13 @@ struct SystemMetrics: Equatable, Sendable {
         if gb >= 10 { return String(format: "%.0f GB", gb) }
         return String(format: "%.1f GB", gb)
     }
+}
+
+/// Shown as a one-tap banner at the top of the popover.
+enum UrgentCondition: Equatable, Sendable {
+    case disk(freeBytes: UInt64)
+    case memory
+    case thermal(ThermalLevel)
 }
 
 enum ThermalLevel: Int, Sendable, Equatable {

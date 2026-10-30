@@ -5,20 +5,11 @@ struct OperationStatusBanner: View {
     let title: String
     var detail: String? = nil
 
-    @State private var pulse = false
-
     var body: some View {
         HStack(spacing: 10) {
-            ZStack {
-                Circle()
-                    .stroke(CleanerTheme.accent.opacity(0.25), lineWidth: 2)
-                    .frame(width: 22, height: 22)
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(CleanerTheme.accent)
-            }
-            .scaleEffect(pulse ? 1.05 : 0.95)
-            .animation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: pulse)
+            ProgressView()
+                .controlSize(.small)
+                .tint(CleanerTheme.accent)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -47,7 +38,6 @@ struct OperationStatusBanner: View {
                         .stroke(CleanerTheme.accent.opacity(0.28), lineWidth: 1)
                 )
         )
-        .onAppear { pulse = true }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title). Working, please wait.")
     }

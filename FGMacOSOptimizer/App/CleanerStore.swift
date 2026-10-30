@@ -140,7 +140,11 @@ final class CleanerStore: ObservableObject {
             }
         }
 
-        let applied = CleanExecutor.apply(working)
+        // Trash/delete + size walks run off the main thread (Cleaner window stays responsive).
+        let toApply = working
+        let applied = await Task.detached(priority: .utility) {
+            CleanExecutor.apply(toApply)
+        }.value
         result.freedBytes += applied.result.freedBytes
         result.itemsProcessed += applied.result.itemsProcessed
         result.errors.append(contentsOf: applied.result.errors)

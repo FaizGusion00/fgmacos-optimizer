@@ -12,13 +12,19 @@ struct StartupSettingsView: View {
                 .foregroundStyle(.primary.opacity(0.75))
 
             Toggle(isOn: Binding(
-                get: { launch.isEnabled },
-                set: { launch.setEnabled($0) }
+                get: { features.keepInMenuBar },
+                set: { keep in
+                    features.keepInMenuBar = keep
+                    // Open at Login needs a resident agent — turning Keep off turns it off too.
+                    if !keep, launch.isEnabled { launch.setEnabled(false) }
+                }
             )) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Open at Login")
+                    Text("Keep in menu bar")
                         .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    Text("Auto-run FGMacOS Optimizer when you start your Mac")
+                    Text(features.keepInMenuBar
+                         ? "Stays running (idle ~0% CPU). Turn off to quit when you close the panel."
+                         : "On-demand (recommended): close the panel → app quits. No idle background.")
                         .font(Design.Text.micro)
                         .foregroundStyle(.primary.opacity(0.72))
                         .fixedSize(horizontal: false, vertical: true)
@@ -27,11 +33,17 @@ struct StartupSettingsView: View {
             .toggleStyle(.switch)
             .controlSize(.small)
 
-            Toggle(isOn: $launch.optimizeOnLaunch) {
+            Toggle(isOn: Binding(
+                get: { launch.isEnabled },
+                set: { enabled in
+                    if enabled { features.keepInMenuBar = true }
+                    launch.setEnabled(enabled)
+                }
+            )) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Optimize after startup")
+                    Text("Open at Login")
                         .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    Text("Stop Time Machine backups on launch; keep soft Turbo state")
+                    Text("Needs “Keep in menu bar”. Auto-starts a tiny agent after reboot.")
                         .font(Design.Text.micro)
                         .foregroundStyle(.primary.opacity(0.72))
                         .fixedSize(horizontal: false, vertical: true)
@@ -39,7 +51,21 @@ struct StartupSettingsView: View {
             }
             .toggleStyle(.switch)
             .controlSize(.small)
-            .disabled(!launch.isEnabled && !launch.optimizeOnLaunch)
+            .disabled(!features.keepInMenuBar && !launch.isEnabled)
+
+            Toggle(isOn: $launch.optimizeOnLaunch) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Optimize after startup")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    Text("Only after login (needs Open at Login): pause a running backup, keep heavy folders out of Spotlight, clear safe caches once a day. No admin.")
+                        .font(Design.Text.micro)
+                        .foregroundStyle(.primary.opacity(0.72))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .disabled(!launch.isEnabled)
 
             Toggle(isOn: $features.clearDerivedDataOnTurbo) {
                 VStack(alignment: .leading, spacing: 2) {

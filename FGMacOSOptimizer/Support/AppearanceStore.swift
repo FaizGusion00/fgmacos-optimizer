@@ -50,6 +50,7 @@ extension Notification.Name {
     static let fgAppearanceDidChange = Notification.Name("fg.appearanceDidChange")
     static let fgOperationDidStart = Notification.Name("fg.operationDidStart")
     static let fgOperationDidEnd = Notification.Name("fg.operationDidEnd")
+    static let fgRequestOnDemandQuit = Notification.Name("fg.requestOnDemandQuit")
 }
 
 @MainActor

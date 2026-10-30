@@ -13,9 +13,21 @@ struct ActionReportBanner: View {
                 Text(report.summaryLine)
                     .font(Design.Text.micro)
                     .foregroundStyle(.primary.opacity(0.78))
-                    .lineLimit(2)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
+            Button {
+                ActionReportStore.shared.dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.primary.opacity(0.55))
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.plain)
+            .help("Dismiss")
+            .accessibilityLabel("Dismiss result")
         }
         .padding(10)
         .background(

@@ -9,7 +9,8 @@ actor DevCleanupPack {
                 let lib = (home as NSString).appendingPathComponent("Library")
 
                 let targets: [(id: String, title: String, path: String, risk: CleanRisk)] = [
-                    ("dev.derived", "Xcode DerivedData", (lib as NSString).appendingPathComponent("Developer/Xcode/DerivedData"), .safeJunk),
+                    // Review (not pre-ticked): wiping DerivedData forces full rebuilds tomorrow morning.
+                    ("dev.derived", "Xcode DerivedData", (lib as NSString).appendingPathComponent("Developer/Xcode/DerivedData"), .review),
                     ("dev.archives", "Xcode Archives", (lib as NSString).appendingPathComponent("Developer/Xcode/Archives"), .review),
                     ("dev.sim", "CoreSimulator caches", (lib as NSString).appendingPathComponent("Developer/CoreSimulator/Caches"), .safeJunk),
                     ("dev.pods", "CocoaPods cache", (lib as NSString).appendingPathComponent("Caches/CocoaPods"), .safeJunk),

@@ -5,7 +5,7 @@ import UserNotifications
 import QuartzCore
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSPopoverDelegate, PopoverHost {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var eventMonitor: Any?
@@ -13,24 +13,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lastMeterTitle = ""
     private var lastMeterUpdate = Date.distantPast
 
+    // Popover pinning: while an alert / operation / admin sheet is up the popover must not
+    // auto-close (transient popovers collapse when the app deactivates — e.g. SecurityAgent).
+    private var modalDepth = 0
+    private var explicitCloseRequested = false
+    private var popoverClosedDuringOperation = false
+    private var quitGeneration = 0
+    /// The popover auto-opens ~0.6 s after launch; never quit before the user had UI.
+    private let launchedAt = Date()
+    private let startupGrace: TimeInterval = 6.0
+
     let appState = AppState()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         UNUserNotificationCenter.current().delegate = self
-        SmartCareScheduler.registerNotificationCategory()
+        NotificationCategories.registerAll()
+        appState.uiHost = self
+        appState.launchedAsLoginItem = Self.detectLoginLaunch()
         setupStatusItem()
         setupPopover()
         bindStatusIcon()
         bindMeters()
         bindAppearance()
+        bindLifecycle()
         appState.start()
-        SmartCareScheduler.shared.start()
+        if FeatureSettingsStore.shared.keepInMenuBar {
+            SmartCareScheduler.shared.start()
+        }
         AppearanceStore.shared.applyNow()
-        AppLog.lifeFile("didFinishLaunching pid=\(ProcessInfo.processInfo.processIdentifier) path=\(Bundle.main.bundlePath)")
+        #if DEBUG
+        DebugAutomation.shared.start(delegate: self)
+        #endif
+        AppLog.lifeFile("didFinishLaunching pid=\(ProcessInfo.processInfo.processIdentifier) loginLaunch=\(appState.launchedAsLoginItem) path=\(Bundle.main.bundlePath)")
+
+        NotificationCenter.default.addObserver(
+            forName: .fgRequestOnDemandQuit,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.scheduleQuitIfOnDemand() }
+        }
+        NotificationCenter.default.addObserver(
+            forName: .fgOperationDidEnd,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.operationDidEnd() }
+        }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-            self?.showPopoverFromStatusItem()
             if ProcessInfo.processInfo.arguments.contains("--open-cleaner") {
                 CleanerWindowController.show(showIntroIfNeeded: true)
             } else if PermissionManager.shared.shouldReopenCleanerAfterRelaunch {
@@ -48,14 +80,134 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             } else if !PermissionManager.shared.hasCompletedOnboarding {
                 // Ask permissions early — Continue always available (optional).
                 PermissionsWindowController.show()
-            } else {
+            } else if FeatureSettingsStore.shared.keepInMenuBar {
+                // Only auto-open the menu when the user wants a resident agent.
+                self?.showPopoverFromStatusItem()
                 self?.flashLaunchNotice()
+            } else {
+                // On-demand: show UI once so Quit-when-done is obvious, then user closes → app exits.
+                self?.showPopoverFromStatusItem()
             }
         }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    // MARK: - Login-launch detection
+
+    /// True when macOS started us at login (Open at Login). The launch Apple event carries a
+    /// flag for legacy login items; SMAppService launches don't always, so also accept
+    /// "login item enabled and the console session began < 3 min ago" (utmpx).
+    private static func detectLoginLaunch() -> Bool {
+        if let ev = NSAppleEventManager.shared().currentAppleEvent,
+           ev.eventClass == AEEventClass(kCoreEventClass),
+           ev.eventID == AEEventID(kAEOpenApplication),
+           let prop = ev.paramDescriptor(forKeyword: AEKeyword(keyAEPropData)),
+           prop.enumCodeValue == OSType(keyAELaunchedAsLogInItem) {
+            return true
+        }
+        guard LaunchAtLoginStore.shared.isEnabled else { return false }
+        return secondsSinceConsoleLogin() < 180
+    }
+
+    private static func secondsSinceConsoleLogin() -> TimeInterval {
+        setutxent()
+        defer { endutxent() }
+        var best = TimeInterval.greatestFiniteMagnitude
+        while let entry = getutxent() {
+            let e = entry.pointee
+            guard Int32(e.ut_type) == USER_PROCESS else { continue }
+            let line = withUnsafePointer(to: e.ut_line) {
+                $0.withMemoryRebound(to: CChar.self, capacity: Int(_UTX_LINESIZE)) { String(cString: $0) }
+            }
+            guard line == "console" else { continue }
+            let at = Date(timeIntervalSince1970: TimeInterval(e.ut_tv.tv_sec))
+            best = min(best, Date().timeIntervalSince(at))
+        }
+        return best
+    }
+
+    var isPopoverShown: Bool { popover?.isShown == true }
+    var debugPopoverView: NSView? { popover?.contentViewController?.view }
+    var debugPopoverBehavior: String {
+        switch popover?.behavior {
+        case .transient?: return "transient"
+        case .applicationDefined?: return "applicationDefined"
+        case .semitransient?: return "semitransient"
+        default: return "none"
+        }
+    }
+
+    // MARK: - Popover pinning (PopoverHost)
+
+    private var shouldPin: Bool {
+        modalDepth > 0 || appState.isOptimizing || SessionAuth.shared.isBusy
+    }
+
+    func setModalDepth(_ delta: Int) {
+        modalDepth = max(0, modalDepth + delta)
+        refreshPin()
+    }
+
+    func refreshPin() {
+        guard let popover else { return }
+        let wanted: NSPopover.Behavior = shouldPin ? .applicationDefined : .transient
+        if popover.behavior != wanted { popover.behavior = wanted }
+    }
+
+    func popoverShouldClose(_ popover: NSPopover) -> Bool {
+        explicitCloseRequested || !shouldPin
+    }
+
+    private func bindLifecycle() {
+        // Admin sheet (Unlock button) outside any operation: pin while it's up, re-check quit after.
+        SessionAuth.shared.$isBusy
+            .dropFirst()
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.refreshPin()
+                self?.scheduleQuitIfOnDemand()
+            }
+            .store(in: &cancellables)
+
+        // Cleaner scan/clean finishing is a reason to re-check the on-demand quit.
+        CleanerStore.shared.$isScanning
+            .combineLatest(CleanerStore.shared.$isCleaning)
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _, _ in self?.scheduleQuitIfOnDemand() }
+            .store(in: &cancellables)
+
+        // Keep in menu bar toggled at runtime: resident-only services follow it.
+        FeatureSettingsStore.shared.$keepInMenuBar
+            .dropFirst()
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { keep in
+                if keep {
+                    SmartCareScheduler.shared.start()
+                } else {
+                    SmartCareScheduler.shared.stop()
+                }
+                AppLog.lifeFile("keepInMenuBar → \(keep)")
+            }
+            .store(in: &cancellables)
+    }
+
+    private func operationDidEnd() {
+        // If the admin sheet collapsed the popover mid-operation, bring the result back
+        // instead of quitting silently — the user should see what changed.
+        if popoverClosedDuringOperation {
+            popoverClosedDuringOperation = false
+            if popover?.isShown != true, !FeatureSettingsStore.shared.keepInMenuBar {
+                showPopoverFromStatusItem()
+                return
+            }
+        }
+        scheduleQuitIfOnDemand()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -70,6 +222,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func showPopoverFromStatusItem() {
         guard let button = statusItem?.button, let popover, !popover.isShown else { return }
+        attachPopoverContent()
         appState.popoverDidOpen()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
@@ -126,14 +279,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func setupPopover() {
         let popover = NSPopover()
         popover.behavior = .transient
-        popover.animates = true
+        // Animating the popover keeps CoreAnimation ticking; content detach handles idle CPU.
+        popover.animates = false
         popover.contentSize = NSSize(width: Design.popoverWidth, height: Design.popoverHeight)
+        // Start empty — attach SwiftUI only while shown. NSPopover keeps the hosting
+        // tree alive when closed; forever animations + gauges were burning ~25–30% CPU.
+        popover.contentViewController = NSHostingController(rootView: EmptyView())
+        popover.delegate = self
+        self.popover = popover
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        // Covers Escape / outside-click paths that skip togglePopover.
+        AppLog.lifeFile("popover closed (optimizing=\(appState.isOptimizing) explicit=\(explicitCloseRequested))")
+        if appState.isOptimizing { popoverClosedDuringOperation = true }
+        appState.popoverDidClose()
+        detachPopoverContent()
+        stopEventMonitor()
+        scheduleQuitIfOnDemand()
+    }
+
+    /// Default mode: no idle menu-bar agent — quit when UI is gone.
+    /// Every guard here is a reason the user still has something on screen or in flight.
+    private func scheduleQuitIfOnDemand() {
+        guard !FeatureSettingsStore.shared.keepInMenuBar else { return }
+        quitGeneration &+= 1
+        let generation = quitGeneration
+        let sinceLaunch = Date().timeIntervalSince(launchedAt)
+        let delay = max(0.35, startupGrace - sinceLaunch)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, generation == self.quitGeneration else { return }
+            guard !FeatureSettingsStore.shared.keepInMenuBar else { return }
+            guard NSApp.modalWindow == nil else { return }
+            guard !self.appState.isOptimizing, !self.appState.storageScanning else { return }
+            guard !SessionAuth.shared.isBusy else { return }
+            guard !CleanerStore.shared.isCleaning, !CleanerStore.shared.isScanning else { return }
+            guard self.popover?.isShown != true else { return }
+            if CleanerWindowController.exists { return }
+            if PermissionsWindowController.exists { return }
+            AppLog.lifeFile("on-demand quit (popover closed, no other windows)")
+            NSApp.terminate(nil)
+        }
+    }
+
+    private func attachPopoverContent() {
+        guard let popover else { return }
         popover.contentViewController = NSHostingController(
             rootView: OptimizerPopoverView()
                 .environmentObject(appState)
                 .environmentObject(AppearanceStore.shared)
         )
-        self.popover = popover
+        popover.contentSize = NSSize(width: Design.popoverWidth, height: Design.popoverHeight)
+    }
+
+    private func detachPopoverContent() {
+        guard let popover else { return }
+        // Drop the entire SwiftUI graph so timers/animations/layout stop cold.
+        popover.contentViewController = NSHostingController(rootView: EmptyView())
     }
 
     private func bindStatusIcon() {
@@ -147,9 +349,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func bindMeters() {
-        appState.$displayMetrics
+        // Use sampler raw metrics (not smoothed display) so menu bar updates without driving SwiftUI gauges.
+        appState.sampler.$metrics
             .combineLatest(FeatureSettingsStore.shared.$showMenuBarMeters, appState.focus.$active)
             .receive(on: DispatchQueue.main)
+            .throttle(for: .seconds(2.0), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] metrics, showMeters, focus in
                 self?.updateMeters(metrics: metrics, showMeters: showMeters, focus: focus)
             }
@@ -172,6 +376,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     }
                 } else {
                     button.toolTip = "FGMacOS Optimizer"
+                    // Clear the "…" cue; meters (if on) rewrite their title on the next pass.
+                    self.lastMeterTitle = ""
+                    button.attributedTitle = NSAttributedString(string: "")
+                    button.title = ""
+                    button.imagePosition = .imageOnly
+                    self.updateMeters(
+                        metrics: self.appState.sampler.metrics,
+                        showMeters: FeatureSettingsStore.shared.showMenuBarMeters,
+                        focus: self.appState.focus.active
+                    )
                 }
             }
             .store(in: &cancellables)
@@ -218,22 +432,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func setBreathingAnimation(active: Bool) {
+        // Disabled: infinite CA opacity animation kept the status-item layer dirty and burned CPU.
         guard let button = statusItem?.button else { return }
         button.layer?.removeAnimation(forKey: "fg.breath")
-        button.wantsLayer = true
-        if active {
-            let anim = CABasicAnimation(keyPath: "opacity")
-            anim.fromValue = 1.0
-            anim.toValue = 0.55
-            anim.duration = 0.9
-            anim.autoreverses = true
-            anim.repeatCount = .infinity
-            anim.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            button.layer?.add(anim, forKey: "fg.breath")
-        } else {
-            button.alphaValue = 1.0
-            button.layer?.opacity = 1.0
-        }
+        button.alphaValue = 1.0
+        button.layer?.opacity = 1.0
+        _ = active
     }
 
     private func bindAppearance() {
@@ -270,6 +474,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if popover.isShown {
             closePopover()
         } else {
+            attachPopoverContent()
             appState.popoverDidOpen()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
@@ -278,16 +483,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func closePopover() {
+        // Explicit close (status-item click) wins over pinning.
+        explicitCloseRequested = true
+        defer { explicitCloseRequested = false }
+        // Delegate popoverDidClose handles detach + appState.popoverDidClose.
         popover?.performClose(nil)
-        appState.popoverDidClose()
-        stopEventMonitor()
     }
 
     private func startEventMonitor() {
         eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             Task { @MainActor in
-                // Keep popover open while Clean/Turbo runs so the loading banner stays visible.
-                guard let self, !self.appState.isOptimizing else { return }
+                // Keep popover open while an alert / Clean / Turbo / admin sheet is up.
+                guard let self, !self.shouldPin else { return }
                 self.closePopover()
             }
         }

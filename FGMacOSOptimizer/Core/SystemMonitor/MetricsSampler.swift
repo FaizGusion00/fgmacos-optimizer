@@ -93,7 +93,7 @@ final class MetricsSampler: ObservableObject {
         }
         let available = freeBytes &+ inactive
         let availableRatio = totalBytes == 0 ? 1 : Double(available) / Double(totalBytes)
-        let hasSwap = swap > 512 * 1024 * 1024
+        let hasSwap = swap > SystemMetrics.swapPressureBytes
         let pressure = MemoryPressureMonitor.shared.combined(
             availableRatio: availableRatio,
             hasSwapPressure: hasSwap

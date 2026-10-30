@@ -3,6 +3,14 @@ import Combine
 import AppKit
 import UserNotifications
 
+/// Lets AppState pin the popover *synchronously* around modal alerts / operations
+/// (notifications hop through the run loop — too late for `NSAlert.runModal`).
+@MainActor
+protocol PopoverHost: AnyObject {
+    func setModalDepth(_ delta: Int)
+    func refreshPin()
+}
+
 @MainActor
 final class AppState: ObservableObject {
     /// Latest raw sample (not published — avoids double UI refresh with displayMetrics).
@@ -45,12 +53,22 @@ final class AppState: ObservableObject {
     private let thermalObserver = ThermalStateObserver()
     private var lastAuthCancelAt: Date?
     private var didNotifySmartRAM = false
+    private var widgetTimer: Timer?
+    private var lastWidgetSnapshot: (cpu: Double, ram: UInt64, turbo: Bool)?
+
+    weak var uiHost: PopoverHost?
+    /// Set by AppDelegate from the launch Apple event / login time (see runLaunchOptimizeIfNeeded).
+    var launchedAsLoginItem = false
+    /// Urgent banner snooze after the user taps its action.
+    var urgentSnoozedUntil: Date = .distantPast
 
     private enum Pace {
-        static let samplerOpen: TimeInterval = 1.6
-        static let samplerClosed: TimeInterval = 5.0
-        static let samplerAfterAction: TimeInterval = 2.0
-        static let samplerBusy: TimeInterval = 8.0
+        /// Popover open — responsive but not frantic.
+        static let samplerOpen: TimeInterval = 2.5
+        /// Menu-bar only — must stay near-idle (was 5s and still drove SwiftUI redraws).
+        static let samplerClosed: TimeInterval = 15.0
+        static let samplerAfterAction: TimeInterval = 3.0
+        static let samplerBusy: TimeInterval = 10.0
     }
 
     /// Runs a long action with visible loading state + quieter metrics sampling (stability).
@@ -78,8 +96,11 @@ final class AppState: ObservableObject {
         operationStatus = status
         operationDetail = detail
         cleaningBucket = bucket
+        // A stale result must not sit under the busy banner.
+        reports.dismiss()
         sampler.setInterval(Pace.samplerBusy)
         watchdog.setForeground(false)
+        uiHost?.refreshPin()
         NotificationCenter.default.post(name: .fgOperationDidStart, object: status)
     }
 
@@ -90,6 +111,7 @@ final class AppState: ObservableObject {
         cleaningBucket = nil
         sampler.setInterval(isPopoverOpen ? Pace.samplerOpen : Pace.samplerClosed)
         watchdog.setForeground(isPopoverOpen)
+        uiHost?.refreshPin()
         NotificationCenter.default.post(name: .fgOperationDidEnd, object: nil)
     }
 
@@ -112,7 +134,11 @@ final class AppState: ObservableObject {
             .sink { [weak self] metrics in
                 guard let self else { return }
                 self.rawMetrics = metrics
-                self.smoother.updateTarget(metrics)
+                // Critical: while popover is closed, do NOT push into MetricSmoother/displayMetrics.
+                // NSPopover keeps the SwiftUI tree alive — updating gauges redraws Angular/blur layers offscreen (~25% CPU).
+                if self.isPopoverOpen {
+                    self.smoother.updateTarget(metrics)
+                }
                 self.evaluateSmartRAM(metrics)
             }
             .store(in: &cancellables)
@@ -123,24 +149,39 @@ final class AppState: ObservableObject {
 
         watchdog.$items
             .receive(on: DispatchQueue.main)
-            .assign(to: &$watchdogItems)
+            .sink { [weak self] items in
+                guard let self, self.isPopoverOpen else { return }
+                self.watchdogItems = items
+            }
+            .store(in: &cancellables)
 
         watchdog.$topProcesses
             .receive(on: DispatchQueue.main)
             .sink { [weak self] tops in
                 guard let self else { return }
-                self.topProcesses = tops
+                // History always; UI publish only while popover open.
                 self.history.record(top: tops, paused: self.settings.historyCollectionPaused)
+                if self.isPopoverOpen {
+                    self.topProcesses = tops
+                }
             }
             .store(in: &cancellables)
 
         watchdog.$lastScanAt
             .receive(on: DispatchQueue.main)
-            .assign(to: &$watchdogLastScan)
+            .sink { [weak self] at in
+                guard let self, self.isPopoverOpen else { return }
+                self.watchdogLastScan = at
+            }
+            .store(in: &cancellables)
 
         watchdog.$isScanning
             .receive(on: DispatchQueue.main)
-            .assign(to: &$watchdogScanning)
+            .sink { [weak self] scanning in
+                guard let self, self.isPopoverOpen else { return }
+                self.watchdogScanning = scanning
+            }
+            .store(in: &cancellables)
 
         turbo.$isActive
             .receive(on: DispatchQueue.main)
@@ -151,7 +192,7 @@ final class AppState: ObservableObject {
             .assign(to: &$turboProgress)
 
         sampler.start(interval: Pace.samplerClosed)
-        network.start(interval: 2.5)
+        // Network sampling only while popover is open (netstat/nettop were hot in samples).
         Task { await turbo.syncFromSystem() }
         SharedMetricsSnapshot.write(from: displayMetrics, turbo: isTurboActive)
 
@@ -162,7 +203,9 @@ final class AppState: ObservableObject {
             m.thermalLevel = level
             m.timestamp = Date()
             self.rawMetrics = m
-            self.smoother.updateTarget(m)
+            if self.isPopoverOpen {
+                self.smoother.updateTarget(m)
+            }
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
@@ -175,14 +218,27 @@ final class AppState: ObservableObject {
             self?.runLaunchOptimizeIfNeeded()
         }
 
-        // Periodic widget snapshot
-        Timer.publish(every: 5, on: .main, in: .common)
-            .autoconnect()
-            .sink { [weak self] _ in
-                guard let self else { return }
-                SharedMetricsSnapshot.write(from: self.displayMetrics, turbo: self.isTurboActive)
-            }
-            .store(in: &cancellables)
+        // Widget snapshot — raw metrics, 60 s with tolerance, and only when something moved
+        // (the widget itself refreshes every 5 min).
+        let widget = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.writeWidgetSnapshotIfChanged() }
+        }
+        widget.tolerance = 15
+        RunLoop.main.add(widget, forMode: .common)
+        widgetTimer = widget
+    }
+
+    private func writeWidgetSnapshotIfChanged() {
+        let m = rawMetrics
+        guard m.timestamp > .distantPast else { return }
+        if let last = lastWidgetSnapshot,
+           last.turbo == isTurboActive,
+           abs(last.cpu - m.cpuUsageFraction) < 0.01,
+           abs(Int64(last.ram) - Int64(m.memoryAvailableBytes)) < 100 * 1024 * 1024 {
+            return
+        }
+        lastWidgetSnapshot = (m.cpuUsageFraction, m.memoryAvailableBytes, isTurboActive)
+        SharedMetricsSnapshot.write(from: m, turbo: isTurboActive)
     }
 
     func stop() {
@@ -192,6 +248,9 @@ final class AppState: ObservableObject {
         watchdog.stop()
         network.stop()
         thermalObserver.stop()
+        widgetTimer?.invalidate()
+        widgetTimer = nil
+        history.flush(sync: true)
         // Never mdutil -a -i on at quit — that caused Spotlight reindex storms.
         turbo.detachWithoutRestoringSpotlight()
     }
@@ -200,12 +259,20 @@ final class AppState: ObservableObject {
         isPopoverOpen = true
         sampler.setInterval(Pace.samplerOpen)
         smoother.start()
-        sampler.kick()
         smoother.snap(to: rawMetrics)
+        displayMetrics = rawMetrics
+        // Flush latest watchdog snapshot into UI now that we're visible.
+        topProcesses = watchdog.topProcesses
+        watchdogItems = watchdog.items
+        watchdogLastScan = watchdog.lastScanAt
+        sampler.kick()
         watchdog.setForeground(true)
-        watchdog.kick()
+        network.start(interval: 4.0)
         network.kick()
-        turbo.refreshIndexingStatus()
+        history.recompute()
+        SessionAuth.shared.setCountdownVisible(true)
+        // `mdutil -s /` runs off-main; the UI picks up the result when it lands.
+        turbo.refreshIndexingStatusInBackground()
         if turbo.indexingDisabledVerified != isTurboActive {
             if turbo.indexingDisabledVerified {
                 isTurboActive = true
@@ -217,19 +284,68 @@ final class AppState: ObservableObject {
         isPopoverOpen = false
         sampler.setInterval(Pace.samplerClosed)
         smoother.stop()
+        network.stop()
         watchdog.setForeground(false)
+        SessionAuth.shared.setCountdownVisible(false)
     }
 
+    /// "Optimize after startup" — only on a real login launch of the resident agent.
+    /// A manual open is not a login: on-demand users would otherwise get their Time Machine
+    /// backup stopped every time they click the icon.
     private func runLaunchOptimizeIfNeeded() {
-        guard LaunchAtLoginStore.shared.optimizeOnLaunch else { return }
+        let launch = LaunchAtLoginStore.shared
+        guard launch.optimizeOnLaunch else { return }
+        guard launchedAsLoginItem, launch.isEnabled, settings.keepInMenuBar else {
+            AppLog.lifeFile("launch optimize skipped (loginLaunch=\(launchedAsLoginItem) loginItem=\(launch.isEnabled) resident=\(settings.keepInMenuBar))")
+            return
+        }
+        let args = ProcessInfo.processInfo.arguments
+        guard !args.contains("--open-cleaner"), !PermissionManager.shared.shouldReopenCleanerAfterRelaunch else { return }
         Task {
-            _ = await PrivilegedRunner.run("/usr/bin/tmutil", args: ["stopbackup"], needsAdmin: false)
+            // Pause a backup only if one is actually running; keep heavy folders out of Spotlight.
+            let tmPaused = await TimeMachineStatus.stopBackupIfRunning()
+            let excluded = await turbo.ensureHeavyExclusions()
+            AppLog.lifeFile("launch optimize: tmPaused=\(tmPaused) exclusions=\(excluded)")
+
+            // At most once per calendar day: wipe safe caches + stale logs (no admin).
+            let dayKey = "fg.launch.lastLightBoostDay"
+            let today = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
+            let last = UserDefaults.standard.double(forKey: dayKey)
+            guard today > last else {
+                AppLog.lifeFile("launch optimize: exclusions=\(excluded) (caches skipped, already today)")
+                return
+            }
+            UserDefaults.standard.set(today, forKey: dayKey)
+            let result = await cleaner.runLaunchLightBoost()
+            AppLog.lifeFile(
+                "launch light boost: excluded=\(excluded) caches=\(result.cacheBytesFreed) logs=\(result.logsBytesFreed) tm=\(result.timeMachineStopped)"
+            )
         }
     }
 
-    private func publishReport(_ report: ActionReport) {
-        reports.publish(report)
-        lastReport = report
+    /// Primary “make my Mac snappier” action — caches, logs, DNS, TM pause, exclusions, optional purge.
+    func speedBoost() {
+        let confirmed = confirm(
+            title: "Quick Optimize?",
+            message: "One-shot tune-up (not the same as Turbo Mode):\n\n• Clear safe regenerable caches\n• Remove stale logs (14+ days)\n• Pause a Time Machine backup if one is running\n• Keep heavy cache folders out of Spotlight\n• Flush DNS + free reclaimable RAM (admin once)\n\nTurbo Mode is separate — it stays on to keep Spotlight off heavy folders.\n\nDoes not quit your apps, touch Docker, or wipe Derived Data."
+        )
+        guard confirmed else { return }
+
+        runOperation(status: "Quick Optimize…", detail: "Caches → logs → Spotlight → DNS → RAM") {
+            self.operationDetail = "Clearing caches & stale logs…"
+            var result = await self.cleaner.runSpeedBoost(purgeMemory: true)
+            self.operationDetail = "Excluding heavy folders from Spotlight…"
+            result.spotlightExcluded = await self.turbo.ensureHeavyExclusions()
+            self.lastCleanResult = result
+            self.publishReport(ActionReport.fromCleanResult(result, title: "Quick Optimize"))
+            // Storage sizes refresh in the background — the tune-up is already done.
+            if self.isPopoverOpen { self.refreshStorageMap() }
+        }
+    }
+
+    /// Sticky by default (stays until dismissed / next action); minor actions can fade.
+    private func publishReport(_ report: ActionReport, transient: Bool = false) {
+        reports.publish(report, autoClearAfter: transient ? ActionReportStore.transientSeconds : nil)
     }
 
     // MARK: - Smart RAM
@@ -237,7 +353,9 @@ final class AppState: ObservableObject {
     private func evaluateSmartRAM(_ metrics: SystemMetrics) {
         let critical = metrics.memoryPressure >= .critical
         let warn = metrics.memoryPressure >= .warning
-        smartRAMSuggestionActive = warn
+        if smartRAMSuggestionActive != warn {
+            smartRAMSuggestionActive = warn
+        }
 
         guard critical else {
             didNotifySmartRAM = false
@@ -267,7 +385,7 @@ final class AppState: ObservableObject {
         content.title = "Memory pressure high"
         content.body = "Tap the menu bar icon → Free RAM now, or enable Auto Free RAM."
         content.sound = .default
-        content.categoryIdentifier = "FG_SMART_RAM"
+        content.categoryIdentifier = NotificationCategories.smartRAMCategoryID
         let req = UNNotificationRequest(identifier: "fg.smart.ram", content: content, trigger: nil)
         try? await UNUserNotificationCenter.current().add(req)
     }
@@ -339,7 +457,7 @@ final class AppState: ObservableObject {
                 dnsFlushed: result.dnsFlushed,
                 detail: result.summary
             ))
-            self.storageBuckets = await self.storageScanner.refreshAll()
+            if self.isPopoverOpen { self.refreshStorageMap() }
         }
     }
 
@@ -383,7 +501,8 @@ final class AppState: ObservableObject {
         runOperation(status: "Quitting CPU hogs…", detail: names) {
             let before = self.rawMetrics.memoryAvailableBytes
             let count = hogs.count
-            await self.watchdog.killAllHogs(whitelist: self.whitelist)
+            // Only the hogs the dialog listed — never the merely "elevated" ones.
+            await self.watchdog.killAllHogs(whitelist: self.whitelist, kinds: [.hog])
             self.publishReport(ActionReport(
                 title: "Kill Hogs",
                 availableBefore: before,
@@ -406,7 +525,7 @@ final class AppState: ObservableObject {
 
         Task {
             await watchdog.forceKill(item: item)
-            publishReport(ActionReport(title: "Quit \(item.name)", processesQuit: 1))
+            publishReport(ActionReport(title: "Quit \(item.name)", processesQuit: 1), transient: true)
         }
     }
 
@@ -423,23 +542,16 @@ final class AppState: ObservableObject {
         runOperation(status: "Flushing DNS…", detail: "Admin may be required") {
             let result = await self.cleaner.flushDNSOnly()
             self.lastCleanResult = result
-            self.publishReport(ActionReport.fromCleanResult(result, title: "DNS flush"))
+            self.publishReport(ActionReport.fromCleanResult(result, title: "DNS flush"), transient: true)
         }
     }
 
+    /// Passive measurement — shows an inline spinner in the Storage card, never the busy banner.
     func refreshStorageMap() {
         guard !storageScanning else { return }
         Task {
             storageScanning = true
-            operationStatus = "Scanning storage…"
-            operationDetail = "Measuring caches, Docker, Downloads…"
-            defer {
-                storageScanning = false
-                if !isOptimizing {
-                    operationStatus = nil
-                    operationDetail = nil
-                }
-            }
+            defer { storageScanning = false }
             storageBuckets = await storageScanner.refreshAll()
         }
     }
@@ -459,20 +571,19 @@ final class AppState: ObservableObject {
         ) {
             let result = await self.cleaner.cleanBucket(bucket)
             self.lastCleanResult = result
-            self.operationDetail = "Refreshing sizes…"
             self.publishReport(ActionReport.fromCleanResult(result, title: "Clean \(bucket.title)"))
-            self.storageBuckets = await self.storageScanner.refreshAll()
+            self.refreshStorageMap()
         }
     }
 
     func coolDown() {
-        runOperation(status: "Cooling down…", detail: "Quitting hogs · Low Power if on battery") {
+        runOperation(status: "Cooling down…", detail: "Quitting hogs & elevated apps · Low Power if on battery") {
             let thermalBefore = self.rawMetrics.thermalLevel
             let before = self.rawMetrics.memoryAvailableBytes
             let targets = self.watchdogItems.filter { $0.kind == .hog || $0.kind == .elevated }
             let count = targets.count
-            await self.watchdog.killAllHogs(whitelist: self.whitelist)
-            await PowerModeHelper.setLowPower(true, onlyOnBattery: true)
+            await self.watchdog.killAllHogs(whitelist: self.whitelist, kinds: [.hog, .elevated])
+            let lowPower = await PowerModeHelper.setLowPower(true, onlyOnBattery: true)
             try? await Task.sleep(nanoseconds: 500_000_000)
             let thermalAfter = ThermalMonitor.sample()
             self.publishReport(ActionReport(
@@ -482,7 +593,8 @@ final class AppState: ObservableObject {
                 processesQuit: count,
                 thermalBefore: thermalBefore,
                 thermalAfter: thermalAfter,
-                lowPowerChanged: true
+                lowPowerChanged: lowPower,
+                detail: count == 0 && !lowPower ? "Nothing to quit · already cool" : nil
             ))
         }
     }
@@ -505,6 +617,16 @@ final class AppState: ObservableObject {
     }
 
     private func confirm(title: String, message: String) -> Bool {
+        #if DEBUG
+        if DebugAutomation.autoConfirm {
+            AppLog.lifeFile("debug autoConfirm: \(title)")
+            return true
+        }
+        #endif
+        // Pin the popover so the alert click / app switch can't collapse it (and so the
+        // on-demand quit can't fire under a modal).
+        uiHost?.setModalDepth(+1)
+        defer { uiHost?.setModalDepth(-1) }
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = message

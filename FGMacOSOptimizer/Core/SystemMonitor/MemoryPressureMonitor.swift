@@ -72,11 +72,13 @@ final class MemoryPressureMonitor: @unchecked Sendable {
     }
 
     /// Combine DispatchSource level with swap/available heuristics.
+    /// Swap alone is never "critical" — many healthy Macs hold swap permanently, and critical
+    /// drives Smart RAM auto-purge. Only the kernel level or <8% available reaches critical.
     func combined(availableRatio: Double, hasSwapPressure: Bool) -> MemoryPressureLevel {
         var level = self.level
-        if availableRatio < 0.08 || hasSwapPressure {
+        if availableRatio < 0.08 {
             level = max(level, .critical)
-        } else if availableRatio < 0.15 {
+        } else if availableRatio < 0.15 || hasSwapPressure {
             level = max(level, .warning)
         }
         return level

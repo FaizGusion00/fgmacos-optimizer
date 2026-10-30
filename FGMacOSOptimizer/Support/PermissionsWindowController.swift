@@ -5,6 +5,16 @@ import SwiftUI
 @MainActor
 enum PermissionsWindowController {
     private static var window: NSWindow?
+    private static var closeObserver: NSObjectProtocol?
+
+    static var isVisible: Bool {
+        window?.isVisible == true
+    }
+
+    /// True while the window exists — on-demand quit must wait for it.
+    static var exists: Bool {
+        window != nil
+    }
 
     static func show() {
         if let window, window.isVisible {
@@ -35,10 +45,28 @@ enum PermissionsWindowController {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         Self.window = window
+
+        // Red-X close must also let the on-demand app quit (orderOut path below too).
+        if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+        closeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+                Self.closeObserver = nil
+                Self.window = nil
+                NotificationCenter.default.post(name: .fgRequestOnDemandQuit, object: "permissions")
+            }
+        }
     }
 
     static func close() {
+        if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+        closeObserver = nil
         window?.orderOut(nil)
         window = nil
+        NotificationCenter.default.post(name: .fgRequestOnDemandQuit, object: "permissions")
     }
 }

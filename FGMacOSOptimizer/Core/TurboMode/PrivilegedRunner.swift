@@ -17,6 +17,11 @@ enum PrivilegedRunner {
             }
         }
 
+        #if DEBUG
+        if await MainActor.run(body: { DebugAutomation.skipAdmin }) {
+            return (false, "skipped (debug skipAdmin): \(launchPath) \(args.joined(separator: " "))")
+        }
+        #endif
         let authorized = await SessionAuth.shared.ensureAuthorized(reason: reason)
         guard authorized else {
             let msg = await MainActor.run { SessionAuth.shared.lastError } ?? "Authentication cancelled"
@@ -24,9 +29,8 @@ enum PrivilegedRunner {
         }
 
         // Cached AuthorizationRef only — AppleScript fallback re-prompts password.
-        return await MainActor.run {
-            SessionAuth.shared.runAdmin(launchPath: launchPath, args: args)
-        }
+        // Runs off the main thread (SessionAuth) so purge/pmset never freeze the UI.
+        return await SessionAuth.shared.runAdmin(launchPath: launchPath, args: args)
     }
 
     /// Multiple root commands in one bash -c — keeps a single elevation for compound actions.
@@ -34,15 +38,18 @@ enum PrivilegedRunner {
         _ script: String,
         reason: String
     ) async -> (ok: Bool, output: String) {
+        #if DEBUG
+        if await MainActor.run(body: { DebugAutomation.skipAdmin }) {
+            return (false, "skipped (debug skipAdmin): \(script)")
+        }
+        #endif
         let authorized = await SessionAuth.shared.ensureAuthorized(reason: reason)
         guard authorized else {
             let msg = await MainActor.run { SessionAuth.shared.lastError } ?? "Authentication cancelled"
             return (false, msg)
         }
 
-        return await MainActor.run {
-            SessionAuth.shared.runAdminShell(script)
-        }
+        return await SessionAuth.shared.runAdminShell(script)
     }
 
     private static func runProcess(launchPath: String, args: [String]) -> (Bool, String) {

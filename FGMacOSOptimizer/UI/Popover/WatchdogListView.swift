@@ -17,15 +17,12 @@ struct WatchdogListView: View {
                     ProgressView().controlSize(.mini)
                 }
                 Spacer()
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    let age = max(0, Int(context.date.timeIntervalSince(appState.watchdogLastScan)))
-                    Text(age < 3 ? "live" : "\(age)s")
-                        .font(Design.Text.micro)
-                        .foregroundStyle(.primary.opacity(0.75))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(Color.primary.opacity(0.08)))
-                }
+                Text(scanAge < 5 ? "live" : "\(scanAge)s")
+                    .font(Design.Text.micro)
+                    .foregroundStyle(.primary.opacity(0.75))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(Color.primary.opacity(0.08)))
                 Text("\(appState.watchdogItems.count)")
                     .font(.system(size: 11, weight: .bold, design: .rounded))
                     .padding(.horizontal, 8)

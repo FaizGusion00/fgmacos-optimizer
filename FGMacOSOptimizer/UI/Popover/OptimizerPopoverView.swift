@@ -45,6 +45,11 @@ struct OptimizerPopoverView: View {
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
+                // Disk nearly full / memory critical / running hot → one obvious tap.
+                UrgentBanner()
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+
                 appearancePicker
                     .padding(.horizontal, 16)
                     .padding(.bottom, 10)
@@ -52,7 +57,7 @@ struct OptimizerPopoverView: View {
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 8) {
-                        // Cleaner first — primary job of the product.
+                        // Quick Optimize first — the one-tap tune-up is the primary job.
                         sectionCard { ActionButtonsView() }
                         sectionCard { StatusGaugesView(metrics: appState.displayMetrics) }
                         sectionCard { FocusProfileView() }
@@ -169,7 +174,6 @@ struct OptimizerPopoverView: View {
                 Image(systemName: appState.isTurboActive ? "bolt.fill" : "gauge.medium")
                     .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(.white)
-                    .fgSymbolPulse(isActive: appState.isTurboActive)
             }
 
             VStack(alignment: .leading, spacing: 2) {
@@ -234,7 +238,7 @@ struct OptimizerPopoverView: View {
 
             Spacer()
 
-            Text("v1.10.3")
+            Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")")
                 .font(Design.Text.micro)
                 .foregroundStyle(tertiary)
 

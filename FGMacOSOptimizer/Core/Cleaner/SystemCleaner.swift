@@ -33,6 +33,118 @@ actor SystemCleaner {
         return CleanResult(cacheBytesFreed: 0, dnsFlushed: ok, dockerPruned: false, dockerMessage: nil)
     }
 
+    /// One-shot “make this Mac feel faster” pass — safe caches, stale logs, DNS, optional purge, stop TM.
+    /// Does not touch Docker (slow / surprising) or Derived Data.
+    func runSpeedBoost(purgeMemory: Bool) async -> CleanResult {
+        let before = MachMemory.sample()?.availableBytes ?? 0
+
+        let cacheBytes = await clearSafeCaches()
+        AppLog.cleaner.info("SpeedBoost caches freed \(cacheBytes, privacy: .public)")
+
+        let logBytes = await clearStaleLogs(olderThanDays: 14)
+        AppLog.cleaner.info("SpeedBoost logs freed \(logBytes, privacy: .public)")
+
+        // Only reported as "paused" when a backup was actually running.
+        let tmPaused = await TimeMachineStatus.stopBackupIfRunning()
+
+        let dns = await flushDNS()
+        AppLog.cleaner.info("SpeedBoost DNS ok=\(dns, privacy: .public)")
+
+        var purged = false
+        if purgeMemory {
+            let purge = await PrivilegedRunner.run(
+                "/usr/sbin/purge",
+                args: [],
+                needsAdmin: true,
+                reason: "Quick Optimize — free reclaimable RAM (purge)."
+            )
+            purged = purge.ok
+            if purged {
+                try? await Task.sleep(nanoseconds: 700_000_000)
+            }
+        }
+
+        let after = MachMemory.sample()?.availableBytes ?? before
+        return CleanResult(
+            cacheBytesFreed: cacheBytes,
+            dnsFlushed: dns,
+            dockerPruned: false,
+            dockerMessage: nil,
+            memoryPurged: purged,
+            availableBefore: before,
+            availableAfter: after,
+            timeMachineStopped: tmPaused,
+            spotlightExcluded: 0,
+            logsBytesFreed: logBytes
+        )
+    }
+
+    /// Quiet launch pass — no admin prompts (no DNS / purge).
+    func runLaunchLightBoost() async -> CleanResult {
+        let before = MachMemory.sample()?.availableBytes ?? 0
+        let cacheBytes = await clearSafeCaches()
+        let logBytes = await clearStaleLogs(olderThanDays: 21)
+        let tmPaused = await TimeMachineStatus.stopBackupIfRunning()
+        let after = MachMemory.sample()?.availableBytes ?? before
+        return CleanResult(
+            cacheBytesFreed: cacheBytes,
+            dnsFlushed: false,
+            dockerPruned: false,
+            dockerMessage: nil,
+            memoryPurged: false,
+            availableBefore: before,
+            availableAfter: after,
+            timeMachineStopped: tmPaused,
+            spotlightExcluded: 0,
+            logsBytesFreed: logBytes
+        )
+    }
+
+    /// Delete ~/Library/Logs files older than N days (apps recreate logs).
+    func clearStaleLogs(olderThanDays: Int) async -> UInt64 {
+        await withCheckedContinuation { cont in
+            DispatchQueue.global(qos: .utility).async {
+                let root = (NSHomeDirectory() as NSString).appendingPathComponent("Library/Logs")
+                let fm = FileManager.default
+                guard let enumerator = fm.enumerator(
+                    at: URL(fileURLWithPath: root),
+                    includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey, .fileSizeKey],
+                    options: [.skipsHiddenFiles]
+                ) else {
+                    cont.resume(returning: 0)
+                    return
+                }
+
+                let cutoff = Date().addingTimeInterval(-TimeInterval(olderThanDays) * 86_400)
+                // Old Macs: bound the walk so a huge Logs tree can never stall the optimize.
+                let deadline = Date().addingTimeInterval(20)
+                var visited = 0
+                var freed: UInt64 = 0
+                var count = 0
+                while let url = enumerator.nextObject() as? URL {
+                    visited += 1
+                    if visited >= 60_000 || (visited % 500 == 0 && Date() >= deadline) { break }
+                    guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey, .fileSizeKey]),
+                          values.isRegularFile == true,
+                          let modified = values.contentModificationDate,
+                          modified < cutoff
+                    else { continue }
+                    let size = UInt64(values.fileSize ?? 0)
+                    do {
+                        try fm.removeItem(at: url)
+                        freed += size
+                        count += 1
+                    } catch {
+                        continue
+                    }
+                    if count >= 8_000 { break }
+                }
+                AppLog.cleaner.info("clearStaleLogs removed=\(count) freed=\(freed)")
+                cont.resume(returning: freed)
+            }
+        }
+    }
+
     func cleanBucket(_ bucket: StorageBucket) async -> CleanResult {
         switch bucket {
         case .caches:
@@ -170,29 +282,9 @@ actor SystemCleaner {
     }
 
     /// Fast bounded size — enough for progress accounting without freezing the UI.
+    /// Bounded (8k files / 4 s) — a cache folder size estimate must never stall a clean.
     private static func quickSize(_ path: String) -> UInt64 {
-        let fm = FileManager.default
-        var isDir: ObjCBool = false
-        guard fm.fileExists(atPath: path, isDirectory: &isDir) else { return 0 }
-        if !isDir.boolValue {
-            return (try? fm.attributesOfItem(atPath: path)[.size] as? UInt64) ?? 0
-        }
-        guard let enumerator = fm.enumerator(
-            at: URL(fileURLWithPath: path),
-            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        ) else { return 0 }
-        var total: UInt64 = 0
-        var n = 0
-        while let item = enumerator.nextObject() as? URL {
-            n += 1
-            if n > 8_000 { break }
-            guard let vals = try? item.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
-                  vals.isRegularFile == true,
-                  let size = vals.fileSize else { continue }
-            total += UInt64(size)
-        }
-        return total
+        BoundedSizeWalk.size(atPath: path, maxFiles: 8_000, budget: 4).bytes
     }
 
     private func wipeDirectoryContents(_ path: String) async -> Bool {

@@ -65,21 +65,6 @@ final class SmartCareScheduler: ObservableObject {
         lastItemCount = UserDefaults.standard.integer(forKey: Keys.lastItemCount)
     }
 
-    static func registerNotificationCategory() {
-        let review = UNNotificationAction(
-            identifier: reviewActionID,
-            title: "Review in Cleaner",
-            options: [.foreground]
-        )
-        let category = UNNotificationCategory(
-            identifier: categoryID,
-            actions: [review],
-            intentIdentifiers: [],
-            options: []
-        )
-        UNUserNotificationCenter.current().setNotificationCategories([category])
-    }
-
     func start() {
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 30 * 60, repeats: true) { [weak self] _ in

@@ -34,10 +34,9 @@ final class MetricSmoother: ObservableObject {
 
     func updateTarget(_ metrics: SystemMetrics) {
         lock.lock(); target = metrics; lock.unlock()
-        if !isRunning {
-            DispatchQueue.main.async { [weak self] in self?.display = metrics }
-            return
-        }
+        // When stopped (popover closed), keep target only — never publish display.
+        // Publishing here used to redraw the still-hosted SwiftUI tree offscreen.
+        guard isRunning else { return }
         DispatchQueue.main.async { [weak self] in self?.resumeIfNeeded() }
     }
 
@@ -59,8 +58,8 @@ final class MetricSmoother: ObservableObject {
         guard !isAnimating else { return }
         isAnimating = true
         timer?.invalidate()
-        // 20 fps is plenty for gauges; 30 was burning main-thread for idle.
-        let pulse = Timer(timeInterval: 1.0 / 20.0, repeats: true) { [weak self] _ in self?.tick() }
+        // 10 fps is enough for gauges; higher rates redraw strokes every frame.
+        let pulse = Timer(timeInterval: 1.0 / 10.0, repeats: true) { [weak self] _ in self?.tick() }
         RunLoop.main.add(pulse, forMode: .common)
         timer = pulse
     }

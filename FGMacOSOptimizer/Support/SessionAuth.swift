@@ -56,6 +56,11 @@ final class SessionAuth: ObservableObject {
     private var unlockTask: Task<Bool, Never>?
     private var expiryTimer: Timer?
     private var tickTimer: Timer?
+    /// Admin commands run off-main; never free the AuthorizationRef while one is in flight.
+    private var inFlightAdminRuns = 0
+    private var freeWhenIdle = false
+    /// 1 Hz countdown only matters while the popover shows the session card.
+    private var countdownVisible = false
     private let log = Logger(subsystem: "com.fgmacos.optimizer", category: "auth")
 
     private enum Keys {
@@ -167,7 +172,7 @@ final class SessionAuth: ObservableObject {
 
         // AuthExec often returns empty stdout on modern macOS even when launch succeeds.
         // Never fall back to AppleScript here — that caused the 2nd/3rd password prompt.
-        let probe = runAdmin(launchPath: "/usr/bin/true", args: [])
+        let probe = await runAdmin(launchPath: "/usr/bin/true", args: [], timeout: 15)
         AuthFileLog.write("root launch probe ok=\(probe.ok) out=\(probe.output.prefix(80))")
         if !probe.ok {
             // Still keep the session if we have a valid AuthorizationRef — commands may work.
@@ -220,6 +225,11 @@ final class SessionAuth: ObservableObject {
     }
 
     func lock() {
+        if inFlightAdminRuns > 0 {
+            // A privileged command is still using the ref — free it once idle.
+            freeWhenIdle = true
+            return
+        }
         stopSessionTimers()
         if let authRef {
             AuthorizationFree(authRef, [.destroyRights])
@@ -233,22 +243,59 @@ final class SessionAuth: ObservableObject {
         AuthFileLog.write("session locked")
     }
 
-    func runAdmin(launchPath: String, args: [String]) -> (ok: Bool, output: String) {
+    /// Runs a tool as root using the cached session. The fork + pipe read happen off the
+    /// main thread so `purge` / `pmset` never freeze the popover (old Macs: seconds).
+    func runAdmin(launchPath: String, args: [String], timeout: TimeInterval = 90) async -> (ok: Bool, output: String) {
         pruneIfExpired()
         guard let authRef else { return (false, "Not authorized") }
         guard AuthExec.isAvailable else { return (false, "Privileged execute unavailable") }
-        let result = AuthExec.run(authorization: authRef, tool: launchPath, arguments: args)
+        let handle = AuthHandle(ref: authRef)
+        inFlightAdminRuns += 1
+        let result: (Bool, String) = await withCheckedContinuation { cont in
+            DispatchQueue.global(qos: .userInitiated).async {
+                cont.resume(returning: AuthExec.run(
+                    authorization: handle.ref,
+                    tool: launchPath,
+                    arguments: args,
+                    timeout: timeout
+                ))
+            }
+        }
+        inFlightAdminRuns -= 1
+        if inFlightAdminRuns == 0, freeWhenIdle {
+            freeWhenIdle = false
+            lock()
+        }
         AuthFileLog.write("runAdmin \(launchPath) ok=\(result.0) out=\(result.1.prefix(120))")
         return (ok: result.0, output: result.1)
     }
 
-    func runAdminShell(_ script: String) -> (ok: Bool, output: String) {
-        pruneIfExpired()
-        guard let authRef else { return (false, "Not authorized") }
-        guard AuthExec.isAvailable else { return (false, "Privileged execute unavailable") }
-        let result = AuthExec.run(authorization: authRef, tool: "/bin/bash", arguments: ["-c", script])
-        AuthFileLog.write("runAdminShell ok=\(result.0) out=\(result.1.prefix(120))")
-        return (ok: result.0, output: result.1)
+    func runAdminShell(_ script: String, timeout: TimeInterval = 120) async -> (ok: Bool, output: String) {
+        let result = await runAdmin(launchPath: "/bin/bash", args: ["-c", script], timeout: timeout)
+        AuthFileLog.write("runAdminShell ok=\(result.ok)")
+        return result
+    }
+
+    /// Popover open/closed — the countdown tick only runs while someone can see it.
+    func setCountdownVisible(_ visible: Bool) {
+        countdownVisible = visible
+        if visible {
+            startTickTimerIfNeeded()
+            countdownTick &+= 1
+        } else {
+            tickTimer?.invalidate()
+            tickTimer = nil
+        }
+    }
+
+    private func startTickTimerIfNeeded() {
+        guard countdownVisible, isUnlocked, tickTimer == nil else { return }
+        let tick = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.countdownTick &+= 1 }
+        }
+        tick.tolerance = 0.2
+        tickTimer = tick
+        RunLoop.main.add(tick, forMode: .common)
     }
 
     /// Sets `expiresAt = unlockedAt + sessionMinutes`, locks if already past, schedules timers.
@@ -286,15 +333,8 @@ final class SessionAuth: ObservableObject {
         expiryTimer = expiry
         RunLoop.main.add(expiry, forMode: .common)
 
-        // 1 Hz UI tick + safety prune.
-        let tick = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.countdownTick &+= 1
-                self?.pruneIfExpired()
-            }
-        }
-        tickTimer = tick
-        RunLoop.main.add(tick, forMode: .common)
+        // 1 Hz UI tick only while the popover is open (idle CPU: no wakeups when closed).
+        startTickTimerIfNeeded()
     }
 
     private func stopSessionTimers() {
@@ -360,6 +400,12 @@ enum AuthError: LocalizedError {
     }
 }
 
+/// AuthorizationRef is an opaque handle; using it from a worker thread is safe as long as
+/// nobody frees it meanwhile (SessionAuth refcounts in-flight runs).
+struct AuthHandle: @unchecked Sendable {
+    let ref: AuthorizationRef
+}
+
 enum AuthExec {
     private typealias ExecFn = @convention(c) (
         AuthorizationRef?,
@@ -381,7 +427,12 @@ enum AuthExec {
 
     static var isAvailable: Bool { execFn != nil }
 
-    static func run(authorization: AuthorizationRef, tool: String, arguments: [String]) -> (Bool, String) {
+    static func run(
+        authorization: AuthorizationRef,
+        tool: String,
+        arguments: [String],
+        timeout: TimeInterval = 90
+    ) -> (Bool, String) {
         guard let execFn else {
             return (false, "Privileged execute unavailable")
         }
@@ -401,25 +452,39 @@ enum AuthExec {
         }
 
         var output = ""
+        var timedOut = false
         if let pipe {
+            // Read until the child closes its stdout (EOF) or the deadline passes.
+            // poll() keeps this loop cheap; the caller runs us off the main thread.
             let fd = fileno(pipe)
             var data = Data()
             var buffer = [UInt8](repeating: 0, count: 4096)
-            // Brief wait — AEWP can return before child writes.
-            for _ in 0..<20 {
+            let deadline = Date().addingTimeInterval(timeout)
+            var pfd = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+            readLoop: while true {
+                if Date() >= deadline { timedOut = true; break }
+                let r = poll(&pfd, 1, 250)
+                if r == 0 { continue }
+                if r < 0 {
+                    if errno == EINTR { continue }
+                    break
+                }
                 let n = read(fd, &buffer, buffer.count)
                 if n > 0 {
                     data.append(buffer, count: n)
                 } else if n == 0 {
-                    break
-                } else {
-                    usleep(20_000)
+                    break readLoop
+                } else if errno != EINTR {
+                    break readLoop
                 }
             }
             output = String(data: data, encoding: .utf8) ?? ""
             fclose(pipe)
         }
 
+        if timedOut {
+            return (false, "timed out after \(Int(timeout))s")
+        }
         return (status == errAuthorizationSuccess, output)
     }
 }

@@ -35,11 +35,11 @@ struct TurboButton: View {
                         .fgSymbolBounce(value: pressed)
 
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(isActive ? "Turbo On" : "Boost Now")
+                        Text(isActive ? "Turbo Mode · On" : "Turbo Mode")
                             .font(.system(size: 15, weight: .bold, design: .rounded))
                         Text(isActive
-                               ? "Heavy caches excluded · no reindex on off"
-                               : "Exclude heavy caches · Spotlight stays on")
+                               ? "Tap to turn off · heavy folders stay de-indexed"
+                               : "Spotlight: skip heavy caches · pause Time Machine")
                             .font(.system(size: 10, weight: .medium))
                             .opacity(0.85)
                     }

@@ -15,6 +15,10 @@ struct ActionReport: Equatable, Sendable, Identifiable {
     var lowPowerChanged: Bool
     var detail: String?
     var createdAt: Date
+    var logsBytesFreed: UInt64
+    var timeMachinePaused: Bool
+    var spotlightExcluded: Int
+    var memoryPurged: Bool
 
     init(
         title: String,
@@ -27,7 +31,11 @@ struct ActionReport: Equatable, Sendable, Identifiable {
         thermalBefore: ThermalLevel? = nil,
         thermalAfter: ThermalLevel? = nil,
         lowPowerChanged: Bool = false,
-        detail: String? = nil
+        detail: String? = nil,
+        logsBytesFreed: UInt64 = 0,
+        timeMachinePaused: Bool = false,
+        spotlightExcluded: Int = 0,
+        memoryPurged: Bool = false
     ) {
         self.id = UUID()
         self.title = title
@@ -42,6 +50,10 @@ struct ActionReport: Equatable, Sendable, Identifiable {
         self.lowPowerChanged = lowPowerChanged
         self.detail = detail
         self.createdAt = Date()
+        self.logsBytesFreed = logsBytesFreed
+        self.timeMachinePaused = timeMachinePaused
+        self.spotlightExcluded = spotlightExcluded
+        self.memoryPurged = memoryPurged
     }
 
     var summaryLine: String {
@@ -59,7 +71,15 @@ struct ActionReport: Equatable, Sendable, Identifiable {
         if bytesCleaned > 0 {
             parts.append("\(CleanResult.formatBytes(bytesCleaned)) cleaned")
         }
+        if logsBytesFreed > 0 {
+            parts.append("logs \(CleanResult.formatBytes(logsBytesFreed))")
+        }
+        if memoryPurged, availableAfter <= availableBefore {
+            parts.append("RAM purged")
+        }
         if dnsFlushed { parts.append("DNS flushed") }
+        if timeMachinePaused { parts.append("Time Machine paused") }
+        if spotlightExcluded > 0 { parts.append("\(spotlightExcluded) folders kept out of Spotlight") }
         if let focusName { parts.append(focusName) }
         if let tb = thermalBefore, let ta = thermalAfter, tb != ta {
             parts.append("Thermal \(tb.title)→\(ta.title)")
@@ -82,7 +102,11 @@ struct ActionReport: Equatable, Sendable, Identifiable {
             bytesCleaned: result.cacheBytesFreed,
             processesQuit: 0,
             dnsFlushed: result.dnsFlushed,
-            detail: result.summary
+            detail: result.summary,
+            logsBytesFreed: result.logsBytesFreed,
+            timeMachinePaused: result.timeMachineStopped,
+            spotlightExcluded: result.spotlightExcluded,
+            memoryPurged: result.memoryPurged
         )
     }
 }
@@ -93,13 +117,15 @@ final class ActionReportStore: ObservableObject {
 
     @Published private(set) var latest: ActionReport?
     private var clearTask: Task<Void, Never>?
-    private let displaySeconds: TimeInterval = 3.2
+    /// Minor actions fade; major ones (Quick Optimize, Deep Clean, Turbo…) stay until dismissed.
+    static let transientSeconds: TimeInterval = 3.2
 
-    func publish(_ report: ActionReport) {
+    func publish(_ report: ActionReport, autoClearAfter seconds: TimeInterval? = nil) {
         clearTask?.cancel()
         latest = report
+        guard let seconds else { return }
         clearTask = Task {
-            try? await Task.sleep(nanoseconds: UInt64(displaySeconds * 1_000_000_000))
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
             guard !Task.isCancelled else { return }
             if latest?.id == report.id {
                 latest = nil
@@ -107,8 +133,10 @@ final class ActionReportStore: ObservableObject {
         }
     }
 
-    func clear() {
+    func dismiss() {
         clearTask?.cancel()
         latest = nil
     }
+
+    func clear() { dismiss() }
 }

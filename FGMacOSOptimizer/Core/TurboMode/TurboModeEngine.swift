@@ -24,41 +24,90 @@ final class TurboModeEngine: ObservableObject {
     }
 
     /// Heavy paths safe to permanently keep out of Spotlight (no volume reindex on Turbo OFF).
+    /// Extra IDE/tool caches help older Macs where Spotlight crawls for hours.
     static var heavyExclusionPaths: [String] {
         let home = NSHomeDirectory()
         return [
             home + "/Library/Caches",
+            home + "/Library/Logs",
             home + "/Library/Developer/Xcode/DerivedData",
             home + "/Library/Developer/CoreSimulator",
             home + "/Library/Developer/Xcode/iOS DeviceSupport",
             home + "/Library/pnpm",
             home + "/Library/Containers/com.docker.docker/Data",
+            home + "/Library/Application Support/Code/CachedData",
+            home + "/Library/Application Support/Code/CachedExtensionVSIXs",
+            home + "/Library/Application Support/Code/Cache",
+            home + "/Library/Application Support/Code/Code Cache",
+            home + "/Library/Application Support/Cursor/CachedData",
+            home + "/Library/Application Support/Cursor/CachedExtensionVSIXs",
+            home + "/Library/Application Support/Cursor/Cache",
+            home + "/Library/Application Support/Cursor/Code Cache",
             home + "/.npm/_cacache",
-            home + "/.cache"
+            home + "/.cache",
+            home + "/.cargo/registry/cache",
+            home + "/.gradle/caches",
+            home + "/go/pkg/mod",
+            home + "/.m2/repository",
+            home + "/.pub-cache"
         ]
+    }
+
+    private var statusCache: (at: Date, value: (disabled: Bool, detail: String))?
+    private var backgroundRefresh: Task<Void, Never>?
+
+    /// Apply heavy-folder exclusions without toggling Turbo UI state (safe always-on for old Macs).
+    @discardableResult
+    func ensureHeavyExclusions() async -> Int {
+        let count = await applyHeavyExclusions()
+        exclusionCount = count
+        await refreshIndexingStatus()
+        return count
     }
 
     init() {
         isActive = UserDefaults.standard.bool(forKey: Keys.active)
-        exclusionCount = (UserDefaults.standard.stringArray(forKey: Keys.exclusionsApplied) ?? []).count
+        exclusionCount = verifiedExclusionPaths().count
     }
 
     /// Sync UI + one-shot repair if old Turbo left volume indexing disabled.
     func syncFromSystem() async {
-        refreshIndexingStatus()
+        await refreshIndexingStatus()
         if volumeIndexingDisabled {
             await repairLegacyVolumeIndexingIfNeeded()
-            refreshIndexingStatus()
+            statusCache = nil
+            await refreshIndexingStatus()
         }
         isActive = UserDefaults.standard.bool(forKey: Keys.active)
-        exclusionCount = appliedExclusionPaths().count
-        refreshIndexingStatus()
     }
 
-    func refreshIndexingStatus() {
-        let status = Self.spotlightVolumeStatus()
+    /// Awaitable status refresh — `mdutil -s /` runs on a utility queue (never blocks the UI).
+    func refreshIndexingStatus() async {
+        let status = await volumeStatus()
+        applyStatus(status)
+    }
+
+    /// Fire-and-forget, coalesced — for popover open (result not needed synchronously).
+    func refreshIndexingStatusInBackground() {
+        guard backgroundRefresh == nil else { return }
+        backgroundRefresh = Task { [weak self] in
+            await self?.refreshIndexingStatus()
+            self?.backgroundRefresh = nil
+        }
+    }
+
+    private func volumeStatus(maxAge: TimeInterval = 10) async -> (disabled: Bool, detail: String) {
+        if let cached = statusCache, Date().timeIntervalSince(cached.at) < maxAge {
+            return cached.value
+        }
+        let value = await Self.probeSpotlightVolumeStatus()
+        statusCache = (Date(), value)
+        return value
+    }
+
+    private func applyStatus(_ status: (disabled: Bool, detail: String)) {
         volumeIndexingDisabled = status.disabled
-        let applied = appliedExclusionPaths().count
+        let applied = verifiedExclusionPaths().count
         exclusionCount = applied
         if status.disabled {
             lastVerifiedDetail = "Volume indexing disabled (legacy)"
@@ -74,7 +123,15 @@ final class TurboModeEngine: ObservableObject {
     /// Soft Turbo active (kept for existing UI bindings).
     var indexingDisabledVerified: Bool { isActive }
 
-    private static func spotlightVolumeStatus() -> (disabled: Bool, detail: String) {
+    nonisolated private static func probeSpotlightVolumeStatus() async -> (disabled: Bool, detail: String) {
+        await withCheckedContinuation { cont in
+            DispatchQueue.global(qos: .utility).async {
+                cont.resume(returning: spotlightVolumeStatusSync())
+            }
+        }
+    }
+
+    nonisolated private static func spotlightVolumeStatusSync() -> (disabled: Bool, detail: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/mdutil")
         process.arguments = ["-s", "/"]
@@ -106,6 +163,7 @@ final class TurboModeEngine: ObservableObject {
             reason: "Restore Spotlight indexing left disabled by an older Turbo Mode."
         )
         UserDefaults.standard.set(true, forKey: Keys.legacyRepairDone)
+        statusCache = nil
         migratedLegacyIndexing = result.ok
         AppLog.turbo.info("Legacy volume indexing repair ok=\(result.ok) out=\(result.output, privacy: .public)")
         statusMessage = result.ok ? "Spotlight volume indexing restored" : "Could not restore Spotlight (admin denied)"
@@ -122,13 +180,9 @@ final class TurboModeEngine: ObservableObject {
         UserDefaults.standard.set(true, forKey: Keys.active)
         AppLog.turbo.info("Soft Turbo exclusions applied count=\(excluded)")
 
-        statusMessage = "Stopping Time Machine backup…"
-        let tm = await PrivilegedRunner.run(
-            "/usr/bin/tmutil",
-            args: ["stopbackup"],
-            needsAdmin: false
-        )
-        AppLog.turbo.info("tmutil stopbackup ok=\(tm.ok)")
+        statusMessage = "Pausing Time Machine backup…"
+        let tmPaused = await TimeMachineStatus.stopBackupIfRunning()
+        AppLog.turbo.info("tmutil stopbackup paused=\(tmPaused)")
 
         var clearedDD = false
         if clearDerivedData {
@@ -137,10 +191,10 @@ final class TurboModeEngine: ObservableObject {
             AppLog.turbo.info("DerivedData cleared=\(clearedDD)")
         }
 
-        refreshIndexingStatus()
+        await refreshIndexingStatus()
         if volumeIndexingDisabled {
             await repairLegacyVolumeIndexingIfNeeded()
-            refreshIndexingStatus()
+            await refreshIndexingStatus()
         }
 
         isActive = true
@@ -157,7 +211,7 @@ final class TurboModeEngine: ObservableObject {
         statusMessage = "Turning Turbo off…"
         UserDefaults.standard.set(false, forKey: Keys.active)
         isActive = false
-        refreshIndexingStatus()
+        await refreshIndexingStatus()
         statusMessage = "Turbo off — Spotlight volume unchanged (no reindex)"
         try? await Task.sleep(nanoseconds: 900_000_000)
         statusMessage = nil
@@ -169,42 +223,47 @@ final class TurboModeEngine: ObservableObject {
         AppLog.turbo.info("App quit — skipping Spotlight restore (no mdutil -a)")
     }
 
+    /// Writes `.metadata_never_index` markers into heavy folders that exist. No admin, no
+    /// per-folder `mdutil -i off` (that is a no-op on modern macOS: "unknown indexing state")
+    /// and never `mdutil -a`. Returns the number of folders whose marker is present now.
     @discardableResult
     private func applyHeavyExclusions() async -> Int {
-        let fm = FileManager.default
-        var existing = appliedExclusionPaths()
-        var targets: [String] = []
-
-        // Markers do not need admin.
-        for path in Self.heavyExclusionPaths {
-            var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else { continue }
-            targets.append(path)
-            let marker = (path as NSString).appendingPathComponent(".metadata_never_index")
-            if !fm.fileExists(atPath: marker) {
-                _ = fm.createFile(atPath: marker, contents: Data(), attributes: nil)
-            }
-            if !existing.contains(path) { existing.append(path) }
-        }
-
-        // Path-level only (never mdutil -a). User-owned trees usually work without admin.
-        for path in targets {
-            let md = await PrivilegedRunner.run(
-                "/usr/bin/mdutil",
-                args: ["-i", "off", path],
-                needsAdmin: false
-            )
-            if !md.ok {
-                AppLog.turbo.info("mdutil -i off soft-fail \(path, privacy: .public)")
+        let candidates = Self.heavyExclusionPaths
+        let existing = appliedExclusionPaths()
+        let (applied, verified): ([String], Int) = await withCheckedContinuation { cont in
+            DispatchQueue.global(qos: .utility).async {
+                let fm = FileManager()
+                var list = existing
+                var ok = 0
+                for path in candidates {
+                    var isDir: ObjCBool = false
+                    guard fm.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else { continue }
+                    let marker = (path as NSString).appendingPathComponent(".metadata_never_index")
+                    if !fm.fileExists(atPath: marker) {
+                        _ = fm.createFile(atPath: marker, contents: Data(), attributes: nil)
+                    }
+                    if fm.fileExists(atPath: marker) {
+                        ok += 1
+                        if !list.contains(path) { list.append(path) }
+                    }
+                }
+                cont.resume(returning: (list, ok))
             }
         }
-
-        UserDefaults.standard.set(existing, forKey: Keys.exclusionsApplied)
-        return existing.count
+        UserDefaults.standard.set(applied, forKey: Keys.exclusionsApplied)
+        AppLog.turbo.info("heavy exclusions verified=\(verified) tracked=\(applied.count)")
+        return verified
     }
 
     private func appliedExclusionPaths() -> [String] {
         UserDefaults.standard.stringArray(forKey: Keys.exclusionsApplied) ?? []
+    }
+
+    /// Paths we track whose marker file is actually present (honest count for the UI).
+    private func verifiedExclusionPaths() -> [String] {
+        appliedExclusionPaths().filter {
+            FileManager.default.fileExists(atPath: ($0 as NSString).appendingPathComponent(".metadata_never_index"))
+        }
     }
 
     private func clearDerivedDataFolder() async -> Bool {

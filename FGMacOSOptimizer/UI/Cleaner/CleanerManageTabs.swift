@@ -8,7 +8,7 @@ struct ScheduleTabView: View {
             VStack(alignment: .leading, spacing: 18) {
                 tip(
                     title: "Scan only — never auto-clean",
-                    detail: "When due, Smart Care scans and notifies how much you can free. You confirm in Cleaner before anything is removed."
+                    detail: "When due, Smart Care scans and notifies how much you can free. You confirm in Cleaner before anything is removed. Scheduled scans need “Keep in menu bar” (Startup section in the menu)."
                 )
 
                 VStack(alignment: .leading, spacing: 10) {
